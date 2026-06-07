@@ -116,6 +116,15 @@ public class ErrorFixerController extends BasePlayerController implements OnLong
         String errorTitle = getErrorTitle(type, rendererIndex);
         String errorMessage = errorTitle + "\n" + errorContent;
 
+        if (getVideo() != null && getVideo().hasHlsManifestUrl()) {
+            MessageHelpers.showLongMessage(getContext(), errorMessage);
+            if (getPlayer() != null) {
+                getPlayer().setTitle(errorContent);
+                getPlayer().showProgressBar(false);
+            }
+            return;
+        }
+
         if (Helpers.startsWithAny(errorContent, "Unable to connect to")) {
             // No internet connection or WRONG DATE on the device
             // Recently this message starting to show for other reasons

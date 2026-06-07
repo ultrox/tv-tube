@@ -283,6 +283,14 @@ public class VideoLoaderController extends BasePlayerController {
         Utils.post(mShowProgressBar);
         disposeActions();
 
+        if (video.hasHlsManifestUrl()) {
+            Log.d(TAG, "Loading direct hls video...");
+            video.isSynced = true;
+            getPlayer().openHlsUrl(video.hlsManifestUrl);
+            getPlayer().showBackground(null);
+            return;
+        }
+
         ServiceManager service = YouTubeServiceManager.instance();
         MediaItemService mediaItemManager = service.getMediaItemService();
         mFormatInfoAction = mediaItemManager.getFormatInfoObserve(video.videoId)

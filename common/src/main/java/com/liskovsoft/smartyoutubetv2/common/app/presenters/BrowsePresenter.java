@@ -14,6 +14,7 @@ import com.liskovsoft.sharedutils.locale.LocaleUtility;
 import com.liskovsoft.sharedutils.mylogger.Log;
 import com.liskovsoft.sharedutils.rx.RxHelper;
 import com.liskovsoft.smartyoutubetv2.common.R;
+import com.liskovsoft.smartyoutubetv2.common.app.models.customcontent.CustomContentProvider;
 import com.liskovsoft.smartyoutubetv2.common.app.models.data.BrowseSection;
 import com.liskovsoft.smartyoutubetv2.common.app.models.data.Playlist;
 import com.liskovsoft.smartyoutubetv2.common.app.models.data.SettingsGroup;
@@ -68,6 +69,7 @@ public class BrowsePresenter extends BasePresenter<BrowseView> implements Sectio
     private final Map<Integer, Callable<List<SettingsItem>>> mSettingsGridMapping;
     private final Map<Integer, Callable<List<Video>>> mLocalGridMappings;
     private final Map<Integer, BrowseSection> mSectionsMapping;
+    private final CustomContentProvider mCustomContentProvider;
     private final AppDataSourceManager mDataSourcePresenter;
     private final BrowseProcessorManager mBrowseProcessor;
     private final List<Disposable> mActions;
@@ -80,6 +82,7 @@ public class BrowsePresenter extends BasePresenter<BrowseView> implements Sectio
 
     private BrowsePresenter(Context context) {
         super(context);
+        mCustomContentProvider = new CustomContentProvider();
         mDataSourcePresenter = AppDataSourceManager.instance();
         mSections = new ArrayList<>();
         mErrorSections = new ArrayList<>();
@@ -722,6 +725,7 @@ public class BrowsePresenter extends BasePresenter<BrowseView> implements Sectio
         VideoGroup firstGroup = VideoGroup.from(section);
         firstGroup.setAction(VideoGroup.ACTION_REPLACE);
         getView().updateSection(firstGroup);
+        updateCustomRows(section);
 
         if (groups == null) {
             // No group. Maybe just clear.
@@ -758,6 +762,25 @@ public class BrowsePresenter extends BasePresenter<BrowseView> implements Sectio
                             Log.e(TAG, "updateRowsHeader error: %s", error.getMessage());
                             handleLoadError(error);
                         }, () -> handleLoadError(null));
+
+        mActions.add(updateAction);
+    }
+
+    private void updateCustomRows(BrowseSection section) {
+        Disposable updateAction = mCustomContentProvider.getRowsObserve(section)
+                .subscribe(
+                        rows -> {
+                            if (getView() == null) {
+                                return;
+                            }
+
+                            for (VideoGroup row : rows) {
+                                if (!row.isEmpty()) {
+                                    getView().updateSection(row);
+                                }
+                            }
+                        },
+                        error -> Log.e(TAG, "updateCustomRows error: %s", error.getMessage()));
 
         mActions.add(updateAction);
     }

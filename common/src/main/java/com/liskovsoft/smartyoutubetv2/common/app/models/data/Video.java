@@ -51,6 +51,7 @@ public final class Video {
     public int itemType = -1;
     public String channelId;
     public String videoId;
+    public String hlsManifestUrl;
     public String playlistId;
     public String remotePlaylistId;
     public int playlistIndex = -1;
@@ -174,6 +175,7 @@ public final class Video {
         video.itemType = item.itemType;
         video.secondTitle = item.secondTitle;
         video.videoId = item.videoId;
+        video.hlsManifestUrl = item.hlsManifestUrl;
         video.channelId = item.channelId;
         video.bgImageUrl = item.bgImageUrl;
         video.cardImageUrl = item.cardImageUrl;
@@ -452,7 +454,7 @@ public final class Video {
         result.category = Helpers.parseStr(split[1]);
         result.title = Helpers.parseStr(split[2]);
         result.videoId = Helpers.parseStr(split[3]);
-        //result.videoUrl = Helpers.parseStr(split[4]);
+        result.hlsManifestUrl = Helpers.parseStr(split[4]);
         result.playlistId = Helpers.parseStr(split[5]);
         result.channelId = Helpers.parseStr(split[6]);
         result.bgImageUrl = Helpers.parseStr(split[7]);
@@ -483,13 +485,17 @@ public final class Video {
     @NonNull
     @Override
     public String toString() {
-        return Helpers.mergeObj(id, category, title, videoId, null, playlistId, channelId, bgImageUrl, cardImageUrl,
+        return Helpers.mergeObj(id, category, title, videoId, hlsManifestUrl, playlistId, channelId, bgImageUrl, cardImageUrl,
                 null, playlistParams, sectionId, getReloadPageKey(), itemType, secondTitle, previewUrl, percentWatched,
                 metadataTitle, metadataSecondTitle, badge, isLive, channelGroupId, searchQuery);
     }
 
     public boolean hasVideo() {
-        return videoId != null;
+        return videoId != null || hasHlsManifestUrl();
+    }
+
+    public boolean hasHlsManifestUrl() {
+        return hlsManifestUrl != null;
     }
 
     public boolean hasChannel() {
