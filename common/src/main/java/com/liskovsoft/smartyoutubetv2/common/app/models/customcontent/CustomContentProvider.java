@@ -6,6 +6,7 @@ import com.liskovsoft.smartyoutubetv2.common.app.models.data.Video;
 import com.liskovsoft.smartyoutubetv2.common.app.models.data.VideoGroup;
 
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.Collections;
 import java.util.List;
 
@@ -15,14 +16,33 @@ public class CustomContentProvider {
     private static final CustomSection STATIC_HOME_SECTION = new CustomSection(
             "tv_tube_custom_hls_row",
             MediaGroup.TYPE_HOME,
-            "Custom video",
+            "Custom videos",
             0,
-            Collections.singletonList(new CustomVideo(
-                    "tv_tube_custom_hls_video",
-                    "Custom HLS Video",
-                    "Custom video",
-                    "https://vz-706ad3a6-5f5.b-cdn.net/4a40b7f8-6ec7-432e-9eac-4cc76ba8d450/playlist.m3u8",
-                    "https://vz-706ad3a6-5f5.b-cdn.net/4a40b7f8-6ec7-432e-9eac-4cc76ba8d450/thumbnail.jpg")));
+            Arrays.asList(
+                    new CustomVideo(
+                            "tv_tube_custom_hls_video",
+                            "Custom HLS Video",
+                            "Custom video",
+                            "https://vz-706ad3a6-5f5.b-cdn.net/4a40b7f8-6ec7-432e-9eac-4cc76ba8d450/playlist.m3u8",
+                            "https://vz-706ad3a6-5f5.b-cdn.net/4a40b7f8-6ec7-432e-9eac-4cc76ba8d450/thumbnail.jpg"),
+                    new CustomVideo(
+                            "tv_tube_puss_in_boots_last_wish",
+                            "Der.Gestiefelte.Kater.Der.Letzte.Wunsch",
+                            "Custom video",
+                            "https://vz-706ad3a6-5f5.b-cdn.net/0ad0bf26-bf7e-416a-9694-53b7f61a2916/playlist.m3u8",
+                            "https://vz-706ad3a6-5f5.b-cdn.net/0ad0bf26-bf7e-416a-9694-53b7f61a2916/thumbnail_ec6c64a7.jpg"),
+                    new CustomVideo(
+                            "tv_tube_ratatouille",
+                            "Ratatouille",
+                            "Custom video",
+                            "https://vz-706ad3a6-5f5.b-cdn.net/4e7d0911-e0af-4dba-98f3-ec59a2bb3f96/playlist.m3u8",
+                            "https://vz-706ad3a6-5f5.b-cdn.net/4e7d0911-e0af-4dba-98f3-ec59a2bb3f96/thumbnail.jpg"),
+                    new CustomVideo(
+                            "tv_tube_beear",
+                            "Beear",
+                            "Custom video",
+                            "https://vz-706ad3a6-5f5.b-cdn.net/c830d21f-91a6-423a-a3f9-a6a723c31616/playlist.m3u8",
+                            "https://vz-706ad3a6-5f5.b-cdn.net/c830d21f-91a6-423a-a3f9-a6a723c31616/thumbnail_799fef13.jpg")));
 
     public Observable<List<VideoGroup>> getRowsObserve(BrowseSection section) {
         return Observable.fromCallable(() -> createRows(section));

@@ -1,0 +1,135 @@
+name: Release TVTube APK
+
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Release tag. Defaults to v<versionName> from build.gradle."
+        required: false
+        type: string
+      changelog:
+        description: "One changelog entry per line."
+        required: false
+        type: string
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    env:
+      HAS_SIGNING_KEY: ${{ secrets.SIGNING_KEY != '' && secrets.KEY_STORE_PASSWORD != '' && secrets.ALIAS != '' && secrets.KEY_PASSWORD != '' }}
+
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+        with:
+          submodules: recursive
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@be666c2fcd27ec809703dec50e508c2fdc7f6654 # v5.2.0
+        with:
+          java-version: "17"
+          distribution: "temurin"
+          cache: "gradle"
+
+      - name: Verify signing secrets
+        run: |
+          if [ "${HAS_SIGNING_KEY}" != "true" ]; then
+            echo "Release updates need a stable signing key. Configure SIGNING_KEY, KEY_STORE_PASSWORD, ALIAS, and KEY_PASSWORD."
+            exit 1
+          fi
+
+      - name: Configure Build Signing
+        run: |
+          echo "storePassword=${{ secrets.KEY_STORE_PASSWORD }}" > keystore.properties
+          echo "keyAlias=${{ secrets.ALIAS }}" >> keystore.properties
+          echo "keyPassword=${{ secrets.KEY_PASSWORD }}" >> keystore.properties
+          echo "storeFile=${{ github.workspace }}/key.jks" >> keystore.properties
+          echo "${{ secrets.SIGNING_KEY }}" | base64 --decode > "${{ github.workspace }}/key.jks"
+
+      - name: Grant Gradle permissions
+        run: chmod +x gradlew
+
+      - name: Build stable release
+        run: ./gradlew clean assembleStstableRelease
+
+      - name: Read APK metadata
+        id: metadata
+        run: |
+          python3 - <<'PY' >> "$GITHUB_OUTPUT"
+          import json
+          from pathlib import Path
+
+          metadata = json.loads(Path("smarttubetv/build/outputs/apk/ststable/release/output-metadata.json").read_text())
+          universal = next(element for element in metadata["elements"] if element["type"] == "UNIVERSAL")
+          print(f"version_name={universal['versionName']}")
+          print(f"version_code={universal['versionCode']}")
+          print(f"apk_file={universal['outputFile']}")
+          PY
+
+      - name: Resolve release tag
+        id: release
+        run: |
+          if [ -n "${{ inputs.tag }}" ]; then
+            TAG_NAME="${{ inputs.tag }}"
+          else
+            TAG_NAME="v${{ steps.metadata.outputs.version_name }}"
+          fi
+
+          echo "tag_name=${TAG_NAME}" >> "$GITHUB_OUTPUT"
+
+      - name: Write changelog
+        run: |
+          cat > release-changelog.txt <<'CHANGELOG'
+          ${{ inputs.changelog }}
+          CHANGELOG
+
+          if ! grep -q '[^[:space:]]' release-changelog.txt; then
+            echo "TVTube ${{ steps.metadata.outputs.version_name }}" > release-changelog.txt
+          fi
+
+      - name: Generate update manifest
+        run: |
+          python3 scripts/generate-update-manifest.py \
+            --metadata smarttubetv/build/outputs/apk/ststable/release/output-metadata.json \
+            --download-base-url "https://github.com/${GITHUB_REPOSITORY}/releases/download/${{ steps.release.outputs.tag_name }}" \
+            --changelog-file release-changelog.txt \
+            --default-changelog "TVTube ${{ steps.metadata.outputs.version_name }}" \
+            --output tv-tube.json
+
+      - name: Write release notes
+        run: |
+          {
+            echo "TVTube ${{ steps.metadata.outputs.version_name }}"
+            echo
+            sed 's/^/- /' release-changelog.txt
+          } > release-notes.md
+
+      - name: Publish GitHub release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG_NAME: ${{ steps.release.outputs.tag_name }}
+          APK_PATH: smarttubetv/build/outputs/apk/ststable/release/${{ steps.metadata.outputs.apk_file }}
+        run: |
+          if gh release view "${TAG_NAME}" >/dev/null 2>&1; then
+            gh release upload "${TAG_NAME}" "${APK_PATH}" tv-tube.json --clobber
+            gh release edit "${TAG_NAME}" \
+              --title "TVTube ${{ steps.metadata.outputs.version_name }}" \
+              --notes-file release-notes.md
+          else
+            gh release create "${TAG_NAME}" "${APK_PATH}" tv-tube.json \
+              --title "TVTube ${{ steps.metadata.outputs.version_name }}" \
+              --notes-file release-notes.md
+          fi
+
+      - name: Release summary
+        run: |
+          {
+            echo "### TVTube release"
+            echo
+            echo "- Version: ${{ steps.metadata.outputs.version_name }} (${{ steps.metadata.outputs.version_code }})"
+            echo "- Tag: ${{ steps.release.outputs.tag_name }}"
+            echo "- Update manifest: https://github.com/${GITHUB_REPOSITORY}/releases/latest/download/tv-tube.json"
+          } >> "$GITHUB_STEP_SUMMARY"

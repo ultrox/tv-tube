@@ -311,6 +311,7 @@ public class VideoLoaderController extends BasePlayerController {
         String bgImageUrl = null;
 
         getVideo().sync(formatInfo);
+        PlaybackDebugLogger.logFormatInfo(formatInfo);
 
         // Fix stretched video for a couple milliseconds (before the onVideoSizeChanged gets called)
         applyAspectRatio(formatInfo);

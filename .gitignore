@@ -69,5 +69,8 @@ tmp/
 /captures
 .externalNativeBuild
 fabric.properties
+/.env
+/tvtube-release.jks
+keystore.properties
 *BAK.java
 hs_err_pid*.log
