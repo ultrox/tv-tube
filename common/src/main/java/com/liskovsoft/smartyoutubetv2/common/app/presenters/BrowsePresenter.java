@@ -780,7 +780,10 @@ public class BrowsePresenter extends BasePresenter<BrowseView> implements Sectio
                                 }
                             }
                         },
-                        error -> Log.e(TAG, "updateCustomRows error: %s", error.getMessage()));
+                        error -> {
+                            Log.e(TAG, "updateCustomRows error: %s", error.getMessage());
+                            handleLoadError(error);
+                        });
 
         mActions.add(updateAction);
     }

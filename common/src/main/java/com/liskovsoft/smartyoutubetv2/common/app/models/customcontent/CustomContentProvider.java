@@ -1,90 +1,166 @@
 package com.liskovsoft.smartyoutubetv2.common.app.models.customcontent;
 
 import com.liskovsoft.mediaserviceinterfaces.data.MediaGroup;
+import com.liskovsoft.sharedutils.helpers.Helpers;
+import com.liskovsoft.sharedutils.okhttp.OkHttpManager;
+import com.liskovsoft.sharedutils.rx.RxHelper;
 import com.liskovsoft.smartyoutubetv2.common.app.models.data.BrowseSection;
 import com.liskovsoft.smartyoutubetv2.common.app.models.data.Video;
 import com.liskovsoft.smartyoutubetv2.common.app.models.data.VideoGroup;
 
 import java.util.ArrayList;
-import java.util.Arrays;
 import java.util.Collections;
 import java.util.List;
 
 import io.reactivex.Observable;
+import okhttp3.Response;
+import okhttp3.ResponseBody;
+import org.json.JSONArray;
+import org.json.JSONException;
+import org.json.JSONObject;
 
 public class CustomContentProvider {
-    private static final CustomSection STATIC_HOME_SECTION = new CustomSection(
-            "tv_tube_custom_hls_row",
-            MediaGroup.TYPE_HOME,
-            "Custom videos",
-            0,
-            Arrays.asList(
-                    new CustomVideo(
-                            "tv_tube_custom_hls_video",
-                            "Custom HLS Video",
-                            "Custom video",
-                            "https://vz-706ad3a6-5f5.b-cdn.net/4a40b7f8-6ec7-432e-9eac-4cc76ba8d450/playlist.m3u8",
-                            "https://vz-706ad3a6-5f5.b-cdn.net/4a40b7f8-6ec7-432e-9eac-4cc76ba8d450/thumbnail.jpg"),
-                    new CustomVideo(
-                            "tv_tube_puss_in_boots_last_wish",
-                            "Der.Gestiefelte.Kater.Der.Letzte.Wunsch",
-                            "Custom video",
-                            "https://vz-706ad3a6-5f5.b-cdn.net/0ad0bf26-bf7e-416a-9694-53b7f61a2916/playlist.m3u8",
-                            "https://vz-706ad3a6-5f5.b-cdn.net/0ad0bf26-bf7e-416a-9694-53b7f61a2916/thumbnail_ec6c64a7.jpg"),
-                    new CustomVideo(
-                            "tv_tube_ratatouille",
-                            "Ratatouille",
-                            "Custom video",
-                            "https://vz-706ad3a6-5f5.b-cdn.net/4e7d0911-e0af-4dba-98f3-ec59a2bb3f96/playlist.m3u8",
-                            "https://vz-706ad3a6-5f5.b-cdn.net/4e7d0911-e0af-4dba-98f3-ec59a2bb3f96/thumbnail.jpg"),
-                    new CustomVideo(
-                            "tv_tube_beear",
-                            "Beear",
-                            "Custom video",
-                            "https://vz-706ad3a6-5f5.b-cdn.net/c830d21f-91a6-423a-a3f9-a6a723c31616/playlist.m3u8",
-                            "https://vz-706ad3a6-5f5.b-cdn.net/c830d21f-91a6-423a-a3f9-a6a723c31616/thumbnail_799fef13.jpg")));
+    private static final String CUSTOM_VIDEOS_URL =
+            "https://gist.githubusercontent.com/ultrox/4f5acc32de839d1023a8c8969700a5f4/raw/videos.json";
+    private static final String ROW_ID = "tv_tube_custom_hls_row";
+    private static final String ROW_TITLE = "Custom videos";
+    private static final String SUBTITLE = "Custom video";
 
     public Observable<List<VideoGroup>> getRowsObserve(BrowseSection section) {
-        return Observable.fromCallable(() -> createRows(section));
+        return RxHelper.fromCallable(() -> createRows(section));
     }
 
     private List<VideoGroup> createRows(BrowseSection section) {
-        if (section == null) {
+        if (section == null || section.getId() != MediaGroup.TYPE_HOME) {
             return Collections.emptyList();
         }
 
         List<VideoGroup> rows = new ArrayList<>();
+        CustomSection customSection = new CustomSection(ROW_ID, ROW_TITLE, 0, fetchCustomVideos());
 
-        for (CustomSection customSection : getCustomSections()) {
-            if (customSection.belongsTo(section)) {
-                rows.add(customSection.toVideoGroup(section));
-            }
-        }
+        rows.add(customSection.toVideoGroup(section));
 
         return rows;
     }
 
-    private List<CustomSection> getCustomSections() {
-        return Collections.singletonList(STATIC_HOME_SECTION);
+    private List<CustomVideo> fetchCustomVideos() {
+        String json = fetchJson(addCacheBust(CUSTOM_VIDEOS_URL));
+        return parseCustomVideos(json);
+    }
+
+    private String fetchJson(String url) {
+        try (Response response = OkHttpManager.instance().doGetRequest(url)) {
+            if (response == null) {
+                throw new IllegalStateException("Custom videos request failed: empty response");
+            }
+
+            ResponseBody body = response.body();
+
+            if (!response.isSuccessful()) {
+                throw new IllegalStateException(String.format("Custom videos request failed: HTTP %s", response.code()));
+            }
+
+            if (body == null) {
+                throw new IllegalStateException("Custom videos request failed: empty body");
+            }
+
+            return body.string();
+        } catch (Exception e) {
+            throw new IllegalStateException("Custom videos request failed: " + e.getMessage(), e);
+        }
+    }
+
+    private List<CustomVideo> parseCustomVideos(String json) {
+        try {
+            JSONArray items = new JSONArray(json);
+
+            if (items.length() == 0) {
+                throw new JSONException("root array is empty");
+            }
+
+            List<CustomVideo> videos = new ArrayList<>();
+
+            for (int i = 0; i < items.length(); i++) {
+                JSONObject item = items.getJSONObject(i);
+                String title = requireString(item, "title", i);
+                String src = requireString(item, "src", i);
+                String thumbnailUrl = firstNonEmpty(
+                        item.optString("thumbnailUrl", null),
+                        item.optString("thumbnail", null),
+                        item.optString("thumb", null),
+                        deriveThumbnailUrl(src));
+
+                if (!Helpers.isValidUrl(src)) {
+                    throw new JSONException(String.format("item %s field 'src' is not a URL", i));
+                }
+
+                if (thumbnailUrl != null && !Helpers.isValidUrl(thumbnailUrl)) {
+                    throw new JSONException(String.format("item %s thumbnail field is not a URL", i));
+                }
+
+                videos.add(new CustomVideo(createVideoId(title, src), title, SUBTITLE, src, thumbnailUrl));
+            }
+
+            return videos;
+        } catch (JSONException e) {
+            throw new IllegalStateException("Custom videos JSON is invalid: " + e.getMessage(), e);
+        }
+    }
+
+    private String addCacheBust(String url) {
+        return String.format("%s?bust=%s", url, System.currentTimeMillis());
+    }
+
+    private String requireString(JSONObject item, String key, int index) throws JSONException {
+        String value = item.optString(key, null);
+
+        if (value == null || value.trim().isEmpty()) {
+            throw new JSONException(String.format("item %s missing non-empty '%s'", index, key));
+        }
+
+        return value.trim();
+    }
+
+    private String createVideoId(String title, String src) {
+        return String.format("tv_tube_custom_%s", Helpers.hashCodeAny(title, src));
+    }
+
+    private String deriveThumbnailUrl(String src) {
+        String marker = "playlist.m3u8";
+        int index = src != null ? src.indexOf(marker) : -1;
+
+        if (index == -1) {
+            return null;
+        }
+
+        return src.substring(0, index) + "thumbnail.jpg";
+    }
+
+    private String firstNonEmpty(String... items) {
+        if (items == null) {
+            return null;
+        }
+
+        for (String item : items) {
+            if (item != null && !item.trim().isEmpty()) {
+                return item.trim();
+            }
+        }
+
+        return null;
     }
 
     private static class CustomSection {
         private final String mId;
-        private final int mBrowseSectionId;
         private final String mTitle;
         private final int mPosition;
         private final List<CustomVideo> mVideos;
 
-        private CustomSection(String id, int browseSectionId, String title, int position, List<CustomVideo> videos) {
+        private CustomSection(String id, String title, int position, List<CustomVideo> videos) {
             mId = id;
-            mBrowseSectionId = browseSectionId;
             mTitle = title;
             mPosition = position;
             mVideos = videos;
-        }
-
-        private boolean belongsTo(BrowseSection section) {
-            return section.getId() == mBrowseSectionId;
         }
 
         private VideoGroup toVideoGroup(BrowseSection section) {
