@@ -1401,6 +1401,10 @@ public class PlaybackFragment extends SeekModePlaybackFragment implements Playba
             return true;
         }
 
+        if (isMiniDrillNavigationKey(keyCode)) {
+            return moveMiniDrillFocus(focused, keyCode);
+        }
+
         switch (keyCode) {
             case KeyEvent.KEYCODE_DPAD_CENTER:
             case KeyEvent.KEYCODE_ENTER:
@@ -1408,18 +1412,12 @@ public class PlaybackFragment extends SeekModePlaybackFragment implements Playba
             case KeyEvent.KEYCODE_NUMPAD_ENTER:
                 runMiniDrillAction(mMiniDrillRevealed ? mMiniDrillCallback::onEasy : mMiniDrillCallback::onReveal);
                 return true;
-            case KeyEvent.KEYCODE_DPAD_RIGHT:
-                runMiniDrillAction(mMiniDrillRevealed ? mMiniDrillCallback::onHard : mMiniDrillCallback::onLater);
-                return true;
-            case KeyEvent.KEYCODE_DPAD_DOWN:
-                runMiniDrillAction(mMiniDrillRevealed ? mMiniDrillCallback::onAgainLater : mMiniDrillCallback::onSkip);
-                return true;
             case KeyEvent.KEYCODE_BACK:
             case KeyEvent.KEYCODE_ESCAPE:
                 runMiniDrillAction(mMiniDrillCallback::onDismiss);
                 return true;
             default:
-                return focused != null && moveMiniDrillFocus(focused, keyCode);
+                return false;
         }
     }
 
@@ -1459,15 +1457,18 @@ public class PlaybackFragment extends SeekModePlaybackFragment implements Playba
     }
 
     private boolean moveMiniDrillFocus(View focused, int keyCode) {
+        if (keyCode == KeyEvent.KEYCODE_DPAD_LEFT || keyCode == KeyEvent.KEYCODE_DPAD_RIGHT) {
+            return moveMiniDrillFocusHorizontally(focused, keyCode == KeyEvent.KEYCODE_DPAD_RIGHT ? 1 : -1);
+        }
+
+        if (focused == null) {
+            focusFirstVisibleMiniDrillAction();
+            return true;
+        }
+
         int direction;
 
         switch (keyCode) {
-            case KeyEvent.KEYCODE_DPAD_LEFT:
-                direction = View.FOCUS_LEFT;
-                break;
-            case KeyEvent.KEYCODE_DPAD_RIGHT:
-                direction = View.FOCUS_RIGHT;
-                break;
             case KeyEvent.KEYCODE_DPAD_UP:
                 direction = View.FOCUS_UP;
                 break;
@@ -1485,6 +1486,58 @@ public class PlaybackFragment extends SeekModePlaybackFragment implements Playba
         }
 
         return true;
+    }
+
+    private boolean moveMiniDrillFocusHorizontally(View focused, int direction) {
+        if (mMiniDrillOverlay == null) {
+            return false;
+        }
+
+        View[] actions = new View[MINI_DRILL_ACTION_BUTTON_IDS.length];
+        int focusedIndex = -1;
+        int actionCount = 0;
+
+        for (int buttonId : MINI_DRILL_ACTION_BUTTON_IDS) {
+            View action = mMiniDrillOverlay.findViewById(buttonId);
+
+            if (!isMiniDrillActionAvailable(action)) {
+                continue;
+            }
+
+            if (action == focused) {
+                focusedIndex = actionCount;
+            }
+
+            actions[actionCount++] = action;
+        }
+
+        if (actionCount == 0) {
+            return true;
+        }
+
+        int nextIndex = focusedIndex == -1 ? 0 : focusedIndex + direction;
+        nextIndex = Math.max(0, Math.min(actionCount - 1, nextIndex));
+        actions[nextIndex].requestFocus();
+        return true;
+    }
+
+    private void focusFirstVisibleMiniDrillAction() {
+        if (mMiniDrillOverlay == null) {
+            return;
+        }
+
+        for (int buttonId : MINI_DRILL_ACTION_BUTTON_IDS) {
+            View action = mMiniDrillOverlay.findViewById(buttonId);
+
+            if (isMiniDrillActionAvailable(action)) {
+                action.requestFocus();
+                return;
+            }
+        }
+    }
+
+    private boolean isMiniDrillActionAvailable(View action) {
+        return action != null && action.isShown() && action.isEnabled();
     }
 
     private boolean isMiniDrillChild(View view) {
