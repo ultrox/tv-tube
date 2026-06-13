@@ -1,10 +1,12 @@
 package com.liskovsoft.smartyoutubetv2.tv.ui.playback;
 
 import android.media.session.PlaybackState;
+import android.os.Build;
 import android.os.Build.VERSION;
 import android.os.Bundle;
 import android.os.Handler;
 import android.os.Looper;
+import android.os.SystemClock;
 import android.support.v4.media.MediaMetadataCompat;
 import android.support.v4.media.session.MediaSessionCompat;
 import android.support.v4.media.session.PlaybackStateCompat;
@@ -14,9 +16,11 @@ import android.view.LayoutInflater;
 import android.view.MotionEvent;
 import android.view.View;
 import android.view.ViewGroup;
+import android.view.ViewParent;
 import android.view.ViewStub;
 import android.widget.Button;
 import android.widget.LinearLayout;
+import android.widget.ProgressBar;
 import android.widget.TextView;
 
 import androidx.annotation.NonNull;
@@ -57,6 +61,7 @@ import com.liskovsoft.smartyoutubetv2.common.app.models.data.Video;
 import com.liskovsoft.smartyoutubetv2.common.app.models.data.VideoGroup;
 import com.liskovsoft.smartyoutubetv2.common.app.models.playback.manager.PlayerUI;
 import com.liskovsoft.smartyoutubetv2.common.app.models.minidrills.MiniDrillCard;
+import com.liskovsoft.smartyoutubetv2.common.app.models.minidrills.MiniDrillController;
 import com.liskovsoft.smartyoutubetv2.common.app.models.minidrills.MiniDrillUi;
 import com.liskovsoft.smartyoutubetv2.common.app.models.playback.ui.ChatReceiver;
 import com.liskovsoft.smartyoutubetv2.common.app.models.playback.ui.SeekBarSegment;
@@ -109,6 +114,24 @@ public class PlaybackFragment extends SeekModePlaybackFragment implements Playba
     private static final String SELECTED_VIDEO_ID = "SelectedVideoId";
     private static final int UPDATE_DELAY_MS = 100;
     private static final int SUGGESTIONS_START_INDEX = 1;
+    private static final int MINI_DRILL_TIMEOUT_PROGRESS_MAX = 1_000;
+    private static final long MINI_DRILL_PROGRESS_UPDATE_MS = 100;
+
+    private enum InputScopeResult {
+        UNHANDLED,
+        CONSUME
+    }
+
+    private static final int[] MINI_DRILL_ACTION_BUTTON_IDS = {
+            R.id.mini_drill_reveal,
+            R.id.mini_drill_later,
+            R.id.mini_drill_skip,
+            R.id.mini_drill_easy,
+            R.id.mini_drill_hard,
+            R.id.mini_drill_again_later,
+            R.id.mini_drill_annoying
+    };
+
     private VideoPlayerGlue mPlayerGlue;
     private SimpleExoPlayer mPlayer;
     private PlaybackPresenter mPlaybackPresenter;
@@ -134,10 +157,17 @@ public class PlaybackFragment extends SeekModePlaybackFragment implements Playba
     private String mSelectedVideoId;
     private final Handler mMiniDrillHandler = new Handler(Looper.getMainLooper());
     private final Runnable mMiniDrillTimeout = this::onMiniDrillTimeout;
+    private final Runnable mMiniDrillProgressTick = this::updateMiniDrillTimeoutProgress;
     private View mMiniDrillOverlay;
+    private Button mMiniDrillDevTrigger;
+    private View mMiniDrillPressedView;
+    private MiniDrillCard mMiniDrillCard;
     private MiniDrillUi.Callback mMiniDrillCallback;
     private boolean mMiniDrillHandled;
     private boolean mMiniDrillRevealed;
+    private boolean mMiniDrillCommitted;
+    private long mMiniDrillTimeoutStartedMs;
+    private int mMiniDrillTimeoutMs;
 
     @Override
     public void onCreate(Bundle savedInstanceState) {
@@ -184,6 +214,7 @@ public class PlaybackFragment extends SeekModePlaybackFragment implements Playba
         // We should use internal progress manager because it's used in many places like Exo engine etc.
         // ProgressBar.setRootView already called at this moment.
         ProgressBarManager.setup(getProgressBarManager(), (ViewGroup) root);
+        setupMiniDrillDevTrigger(root);
 
         return root;
     }
@@ -267,22 +298,45 @@ public class PlaybackFragment extends SeekModePlaybackFragment implements Playba
     }
 
     public boolean onDispatchKeyEvent(KeyEvent event) {
-        return event != null && event.getAction() == KeyEvent.ACTION_DOWN && handleMiniDrillKeyEvent(event.getKeyCode());
+        if (event == null || !isMiniDrillOverlayShown()) {
+            return false;
+        }
+
+        if (event.getAction() == KeyEvent.ACTION_DOWN) {
+            return handleMiniDrillKeyEvent(event.getKeyCode());
+        }
+
+        return event.getAction() == KeyEvent.ACTION_UP && isMiniDrillHandledKey(event.getKeyCode());
     }
 
-    public void onDispatchTouchEvent(MotionEvent event) {
+    public boolean onDispatchTouchEvent(MotionEvent event) {
+        InputScopeResult miniDrillResult = dispatchMiniDrillTouchScope(event);
+
+        if (miniDrillResult == InputScopeResult.CONSUME) {
+            return true;
+        }
+
         if (mDoubleTapPlayerAdapter != null && !isOverlayShown()) {
             boolean handled = mDoubleTapPlayerAdapter.onTouchEvent(event);
 
-            if (handled)
-                return;
+            if (handled) {
+                return true;
+            }
         }
 
         applyTickle(event);
+        return false;
     }
 
-    public void onDispatchGenericMotionEvent(MotionEvent event) {
+    public boolean onDispatchGenericMotionEvent(MotionEvent event) {
+        InputScopeResult miniDrillResult = dispatchMiniDrillTouchScope(event);
+
+        if (miniDrillResult == InputScopeResult.CONSUME) {
+            return true;
+        }
+
         applyTickle(event);
+        return false;
     }
 
     private void applyTickle(MotionEvent event) {
@@ -962,18 +1016,32 @@ public class PlaybackFragment extends SeekModePlaybackFragment implements Playba
         mMiniDrillCallback = callback;
         mMiniDrillHandled = false;
         mMiniDrillRevealed = revealed;
+        mMiniDrillCommitted = revealed;
+        mMiniDrillCard = card;
+
+        renderMiniDrillOverlay(card, revealed, mMiniDrillCommitted, timeoutMs);
+    }
+
+    private void renderMiniDrillOverlay(MiniDrillCard card, boolean revealed, boolean committed, int timeoutMs) {
+        View overlay = getMiniDrillOverlay();
+
+        if (overlay == null) {
+            return;
+        }
 
         TextView title = overlay.findViewById(R.id.mini_drill_title);
         TextView prompt = overlay.findViewById(R.id.mini_drill_prompt);
         TextView hint = overlay.findViewById(R.id.mini_drill_hint);
         TextView answer = overlay.findViewById(R.id.mini_drill_answer);
+        LinearLayout actions = overlay.findViewById(R.id.mini_drill_actions);
         LinearLayout beforeActions = overlay.findViewById(R.id.mini_drill_before_actions);
         LinearLayout afterActions = overlay.findViewById(R.id.mini_drill_after_actions);
+        ProgressBar timeoutProgress = overlay.findViewById(R.id.mini_drill_timeout_progress);
 
         title.setText(card.getPromptPrefix());
         prompt.setText(card.getPromptText());
 
-        if (!revealed && card.hint != null && card.hint.enabled && card.hint.text != null && !card.hint.text.trim().isEmpty()) {
+        if (shouldShowMiniDrillHint(card, revealed, committed)) {
             hint.setText(card.hint.text);
             hint.setVisibility(View.VISIBLE);
         } else {
@@ -982,23 +1050,254 @@ public class PlaybackFragment extends SeekModePlaybackFragment implements Playba
 
         answer.setText(card.getAnswerText());
         answer.setVisibility(revealed ? View.VISIBLE : View.GONE);
-        beforeActions.setVisibility(revealed ? View.GONE : View.VISIBLE);
+        actions.setVisibility(committed || revealed ? View.VISIBLE : View.GONE);
+        beforeActions.setVisibility(committed && !revealed ? View.VISIBLE : View.GONE);
         afterActions.setVisibility(revealed ? View.VISIBLE : View.GONE);
 
         setMiniDrillButtonCallbacks(overlay);
         overlay.setVisibility(View.VISIBLE);
+        overlay.bringToFront();
         overlay.requestFocus();
-        (revealed ? overlay.findViewById(R.id.mini_drill_easy) : overlay.findViewById(R.id.mini_drill_reveal)).requestFocus();
 
-        mMiniDrillHandler.removeCallbacks(mMiniDrillTimeout);
-        if (timeoutMs > 0) {
-            mMiniDrillHandler.postDelayed(mMiniDrillTimeout, timeoutMs);
+        focusMiniDrillDefaultAction(overlay, revealed, committed);
+        configureMiniDrillTimeout(timeoutProgress, !committed && !revealed, timeoutMs);
+    }
+
+    private boolean shouldShowMiniDrillHint(MiniDrillCard card, boolean revealed, boolean committed) {
+        return committed && !revealed && card.hint != null && card.hint.enabled &&
+                card.hint.text != null && !card.hint.text.trim().isEmpty();
+    }
+
+    private void focusMiniDrillDefaultAction(View overlay, boolean revealed, boolean committed) {
+        if (revealed) {
+            overlay.findViewById(R.id.mini_drill_easy).requestFocus();
+        } else if (committed) {
+            overlay.findViewById(R.id.mini_drill_reveal).requestFocus();
         }
+    }
+
+    private void setupMiniDrillDevTrigger(View root) {
+        mMiniDrillDevTrigger = root.findViewById(R.id.mini_drill_dev_trigger);
+
+        if (mMiniDrillDevTrigger == null) {
+            return;
+        }
+
+        if (!isMiniDrillDevTriggerEnabled()) {
+            mMiniDrillDevTrigger.setVisibility(View.GONE);
+            return;
+        }
+
+        mMiniDrillDevTrigger.setVisibility(View.VISIBLE);
+        mMiniDrillDevTrigger.bringToFront();
+        mMiniDrillDevTrigger.setOnClickListener(view -> showMiniDrillDevOverlay());
+    }
+
+    private void showMiniDrillDevOverlay() {
+        if (mPlaybackPresenter == null) {
+            return;
+        }
+
+        MiniDrillController controller = mPlaybackPresenter.getController(MiniDrillController.class);
+
+        if (controller != null) {
+            controller.showDevOverlayNow();
+        }
+    }
+
+    private InputScopeResult dispatchMiniDrillTouchScope(MotionEvent event) {
+        if (event == null) {
+            return InputScopeResult.UNHANDLED;
+        }
+
+        if (isMiniDrillOverlayShown()) {
+            if (isTouchInsideView(mMiniDrillOverlay, event)) {
+                handleMiniDrillOverlayTouch(event);
+            } else {
+                clearMiniDrillPressedView();
+            }
+
+            return InputScopeResult.CONSUME;
+        }
+
+        if (isMiniDrillDevTriggerShown() && isTouchInsideView(mMiniDrillDevTrigger, event)) {
+            handleMiniDrillDevTriggerTouch(event);
+            return InputScopeResult.CONSUME;
+        }
+
+        return InputScopeResult.UNHANDLED;
+    }
+
+    private void handleMiniDrillOverlayTouch(MotionEvent event) {
+        if (isMiniDrillHookShown()) {
+            handleMiniDrillHookTouch(event);
+            return;
+        }
+
+        View actionView = findMiniDrillActionAt(event);
+
+        switch (event.getActionMasked()) {
+            case MotionEvent.ACTION_DOWN:
+                setMiniDrillPressedView(actionView);
+                break;
+            case MotionEvent.ACTION_MOVE:
+                updateMiniDrillPressedState(event);
+                break;
+            case MotionEvent.ACTION_UP:
+                View pressedView = mMiniDrillPressedView;
+                boolean runAction = pressedView != null && isTouchInsideView(pressedView, event);
+                clearMiniDrillPressedView();
+
+                if (runAction) {
+                    runMiniDrillButtonAction(pressedView.getId());
+                }
+                break;
+            case MotionEvent.ACTION_CANCEL:
+                clearMiniDrillPressedView();
+                break;
+            default:
+                break;
+        }
+    }
+
+    private void handleMiniDrillHookTouch(MotionEvent event) {
+        switch (event.getActionMasked()) {
+            case MotionEvent.ACTION_DOWN:
+                setMiniDrillPressedView(mMiniDrillOverlay);
+                break;
+            case MotionEvent.ACTION_MOVE:
+                updateMiniDrillPressedState(event);
+                break;
+            case MotionEvent.ACTION_UP:
+                boolean runAction = mMiniDrillPressedView == mMiniDrillOverlay &&
+                        isTouchInsideView(mMiniDrillOverlay, event);
+                clearMiniDrillPressedView();
+
+                if (runAction) {
+                    commitMiniDrillHook();
+                }
+                break;
+            case MotionEvent.ACTION_CANCEL:
+                clearMiniDrillPressedView();
+                break;
+            default:
+                break;
+        }
+    }
+
+    private void handleMiniDrillDevTriggerTouch(MotionEvent event) {
+        switch (event.getActionMasked()) {
+            case MotionEvent.ACTION_DOWN:
+                setMiniDrillPressedView(mMiniDrillDevTrigger);
+                break;
+            case MotionEvent.ACTION_MOVE:
+                updateMiniDrillPressedState(event);
+                break;
+            case MotionEvent.ACTION_UP:
+                boolean runAction = mMiniDrillPressedView == mMiniDrillDevTrigger &&
+                        isTouchInsideView(mMiniDrillDevTrigger, event);
+                clearMiniDrillPressedView();
+
+                if (runAction) {
+                    showMiniDrillDevOverlay();
+                }
+                break;
+            case MotionEvent.ACTION_CANCEL:
+                clearMiniDrillPressedView();
+                break;
+            default:
+                break;
+        }
+    }
+
+    private View findMiniDrillActionAt(MotionEvent event) {
+        if (mMiniDrillOverlay == null) {
+            return null;
+        }
+
+        for (int buttonId : MINI_DRILL_ACTION_BUTTON_IDS) {
+            View button = mMiniDrillOverlay.findViewById(buttonId);
+
+            if (button != null && button.isShown() && button.isEnabled() && isTouchInsideView(button, event)) {
+                return button;
+            }
+        }
+
+        return null;
+    }
+
+    private void setMiniDrillPressedView(View view) {
+        clearMiniDrillPressedView();
+        mMiniDrillPressedView = view;
+
+        if (mMiniDrillPressedView != null) {
+            mMiniDrillPressedView.setPressed(true);
+            mMiniDrillPressedView.requestFocus();
+        }
+    }
+
+    private void updateMiniDrillPressedState(MotionEvent event) {
+        if (mMiniDrillPressedView != null) {
+            mMiniDrillPressedView.setPressed(isTouchInsideView(mMiniDrillPressedView, event));
+        }
+    }
+
+    private void clearMiniDrillPressedView() {
+        if (mMiniDrillPressedView != null) {
+            mMiniDrillPressedView.setPressed(false);
+            mMiniDrillPressedView = null;
+        }
+    }
+
+    private boolean isMiniDrillDevTriggerShown() {
+        return mMiniDrillDevTrigger != null &&
+                mMiniDrillDevTrigger.getVisibility() == View.VISIBLE &&
+                mMiniDrillDevTrigger.isShown();
+    }
+
+    private boolean isTouchInsideView(View view, MotionEvent event) {
+        if (view == null || event == null) {
+            return false;
+        }
+
+        int[] location = new int[2];
+        view.getLocationInWindow(location);
+
+        float x = event.getX();
+        float y = event.getY();
+
+        return x >= location[0] && x <= location[0] + view.getWidth() &&
+                y >= location[1] && y <= location[1] + view.getHeight();
+    }
+
+    private boolean isMiniDrillDevTriggerEnabled() {
+        return isRunningOnEmulator();
+    }
+
+    private boolean isRunningOnEmulator() {
+        return startsWithIgnoreCase(Build.FINGERPRINT, "generic") ||
+                containsIgnoreCase(Build.FINGERPRINT, "emulator") ||
+                containsIgnoreCase(Build.MODEL, "sdk") ||
+                containsIgnoreCase(Build.MODEL, "emulator") ||
+                containsIgnoreCase(Build.MODEL, "Android SDK") ||
+                containsIgnoreCase(Build.PRODUCT, "sdk") ||
+                containsIgnoreCase(Build.PRODUCT, "emulator") ||
+                containsIgnoreCase(Build.HARDWARE, "goldfish") ||
+                containsIgnoreCase(Build.HARDWARE, "ranchu");
+    }
+
+    private boolean startsWithIgnoreCase(String value, String prefix) {
+        return value != null && value.toLowerCase().startsWith(prefix.toLowerCase());
+    }
+
+    private boolean containsIgnoreCase(String value, String needle) {
+        return value != null && value.toLowerCase().contains(needle.toLowerCase());
     }
 
     @Override
     public void dismissMiniDrillOverlay() {
-        mMiniDrillHandler.removeCallbacks(mMiniDrillTimeout);
+        stopMiniDrillTimeout();
+        clearMiniDrillPressedView();
 
         if (mMiniDrillOverlay != null) {
             mMiniDrillOverlay.setVisibility(View.GONE);
@@ -1007,6 +1306,8 @@ public class PlaybackFragment extends SeekModePlaybackFragment implements Playba
         mMiniDrillCallback = null;
         mMiniDrillHandled = false;
         mMiniDrillRevealed = false;
+        mMiniDrillCommitted = false;
+        mMiniDrillCard = null;
     }
 
     @Override
@@ -1027,23 +1328,77 @@ public class PlaybackFragment extends SeekModePlaybackFragment implements Playba
     }
 
     private void setMiniDrillButtonCallbacks(View overlay) {
-        setMiniDrillButton(overlay, R.id.mini_drill_reveal, () -> mMiniDrillCallback.onReveal());
-        setMiniDrillButton(overlay, R.id.mini_drill_later, () -> mMiniDrillCallback.onLater());
-        setMiniDrillButton(overlay, R.id.mini_drill_skip, () -> mMiniDrillCallback.onSkip());
-        setMiniDrillButton(overlay, R.id.mini_drill_easy, () -> mMiniDrillCallback.onEasy());
-        setMiniDrillButton(overlay, R.id.mini_drill_hard, () -> mMiniDrillCallback.onHard());
-        setMiniDrillButton(overlay, R.id.mini_drill_again_later, () -> mMiniDrillCallback.onAgainLater());
-        setMiniDrillButton(overlay, R.id.mini_drill_annoying, () -> mMiniDrillCallback.onAnnoying());
+        for (int buttonId : MINI_DRILL_ACTION_BUTTON_IDS) {
+            setMiniDrillButton(overlay, buttonId);
+        }
     }
 
-    private void setMiniDrillButton(View overlay, int buttonId, Runnable action) {
+    private void setMiniDrillButton(View overlay, int buttonId) {
         Button button = overlay.findViewById(buttonId);
-        button.setOnClickListener(view -> runMiniDrillAction(action));
+        button.setFocusable(true);
+        button.setFocusableInTouchMode(true);
+        button.setOnClickListener(view -> runMiniDrillButtonAction(buttonId));
+    }
+
+    private void runMiniDrillButtonAction(int buttonId) {
+        if (mMiniDrillCallback == null) {
+            return;
+        }
+
+        switch (buttonId) {
+            case R.id.mini_drill_reveal:
+                runMiniDrillAction(mMiniDrillCallback::onReveal);
+                break;
+            case R.id.mini_drill_later:
+                runMiniDrillAction(mMiniDrillCallback::onLater);
+                break;
+            case R.id.mini_drill_skip:
+                runMiniDrillAction(mMiniDrillCallback::onSkip);
+                break;
+            case R.id.mini_drill_easy:
+                runMiniDrillAction(mMiniDrillCallback::onEasy);
+                break;
+            case R.id.mini_drill_hard:
+                runMiniDrillAction(mMiniDrillCallback::onHard);
+                break;
+            case R.id.mini_drill_again_later:
+                runMiniDrillAction(mMiniDrillCallback::onAgainLater);
+                break;
+            case R.id.mini_drill_annoying:
+                runMiniDrillAction(mMiniDrillCallback::onAnnoying);
+                break;
+            default:
+                break;
+        }
     }
 
     private boolean handleMiniDrillKeyEvent(int keyCode) {
         if (!isMiniDrillOverlayShown() || mMiniDrillCallback == null) {
             return false;
+        }
+
+        if (isMiniDrillHookShown()) {
+            switch (keyCode) {
+                case KeyEvent.KEYCODE_DPAD_CENTER:
+                case KeyEvent.KEYCODE_ENTER:
+                case KeyEvent.KEYCODE_SPACE:
+                case KeyEvent.KEYCODE_NUMPAD_ENTER:
+                    commitMiniDrillHook();
+                    return true;
+                case KeyEvent.KEYCODE_BACK:
+                case KeyEvent.KEYCODE_ESCAPE:
+                    runMiniDrillAction(mMiniDrillCallback::onDismiss);
+                    return true;
+                default:
+                    return isMiniDrillNavigationKey(keyCode);
+            }
+        }
+
+        View focused = getMiniDrillFocusedAction();
+
+        if (focused != null && isMiniDrillConfirmKey(keyCode)) {
+            focused.performClick();
+            return true;
         }
 
         switch (keyCode) {
@@ -1064,8 +1419,150 @@ public class PlaybackFragment extends SeekModePlaybackFragment implements Playba
                 runMiniDrillAction(mMiniDrillCallback::onDismiss);
                 return true;
             default:
+                return focused != null && moveMiniDrillFocus(focused, keyCode);
+        }
+    }
+
+    private boolean isMiniDrillHandledKey(int keyCode) {
+        return isMiniDrillConfirmKey(keyCode) || isMiniDrillNavigationKey(keyCode) ||
+                keyCode == KeyEvent.KEYCODE_BACK || keyCode == KeyEvent.KEYCODE_ESCAPE;
+    }
+
+    private boolean isMiniDrillConfirmKey(int keyCode) {
+        switch (keyCode) {
+            case KeyEvent.KEYCODE_DPAD_CENTER:
+            case KeyEvent.KEYCODE_ENTER:
+            case KeyEvent.KEYCODE_SPACE:
+            case KeyEvent.KEYCODE_NUMPAD_ENTER:
+                return true;
+            default:
                 return false;
         }
+    }
+
+    private boolean isMiniDrillNavigationKey(int keyCode) {
+        switch (keyCode) {
+            case KeyEvent.KEYCODE_DPAD_LEFT:
+            case KeyEvent.KEYCODE_DPAD_RIGHT:
+            case KeyEvent.KEYCODE_DPAD_UP:
+            case KeyEvent.KEYCODE_DPAD_DOWN:
+                return true;
+            default:
+                return false;
+        }
+    }
+
+    private View getMiniDrillFocusedAction() {
+        View focused = getActivity() != null ? getActivity().getCurrentFocus() : null;
+
+        return focused instanceof Button && isMiniDrillChild(focused) ? focused : null;
+    }
+
+    private boolean moveMiniDrillFocus(View focused, int keyCode) {
+        int direction;
+
+        switch (keyCode) {
+            case KeyEvent.KEYCODE_DPAD_LEFT:
+                direction = View.FOCUS_LEFT;
+                break;
+            case KeyEvent.KEYCODE_DPAD_RIGHT:
+                direction = View.FOCUS_RIGHT;
+                break;
+            case KeyEvent.KEYCODE_DPAD_UP:
+                direction = View.FOCUS_UP;
+                break;
+            case KeyEvent.KEYCODE_DPAD_DOWN:
+                direction = View.FOCUS_DOWN;
+                break;
+            default:
+                return false;
+        }
+
+        View next = focused.focusSearch(direction);
+
+        if (next != null && next.isShown() && next.isEnabled() && isMiniDrillChild(next)) {
+            next.requestFocus();
+        }
+
+        return true;
+    }
+
+    private boolean isMiniDrillChild(View view) {
+        View current = view;
+
+        while (current != null) {
+            if (current == mMiniDrillOverlay) {
+                return true;
+            }
+
+            ViewParent parent = current.getParent();
+            current = parent instanceof View ? (View) parent : null;
+        }
+
+        return false;
+    }
+
+    private void configureMiniDrillTimeout(ProgressBar timeoutProgress, boolean showTimeout, int timeoutMs) {
+        stopMiniDrillTimeout();
+
+        if (timeoutProgress == null || !showTimeout || timeoutMs <= 0) {
+            if (timeoutProgress != null) {
+                timeoutProgress.setVisibility(View.GONE);
+            }
+
+            return;
+        }
+
+        mMiniDrillTimeoutStartedMs = SystemClock.elapsedRealtime();
+        mMiniDrillTimeoutMs = timeoutMs;
+        timeoutProgress.setMax(MINI_DRILL_TIMEOUT_PROGRESS_MAX);
+        timeoutProgress.setProgress(MINI_DRILL_TIMEOUT_PROGRESS_MAX);
+        timeoutProgress.setVisibility(View.VISIBLE);
+
+        mMiniDrillHandler.postDelayed(mMiniDrillTimeout, timeoutMs);
+        mMiniDrillHandler.postDelayed(mMiniDrillProgressTick, MINI_DRILL_PROGRESS_UPDATE_MS);
+    }
+
+    private void updateMiniDrillTimeoutProgress() {
+        if (!isMiniDrillOverlayShown() || mMiniDrillCommitted || mMiniDrillRevealed || mMiniDrillHandled || mMiniDrillTimeoutMs <= 0) {
+            return;
+        }
+
+        ProgressBar timeoutProgress = mMiniDrillOverlay.findViewById(R.id.mini_drill_timeout_progress);
+
+        if (timeoutProgress == null) {
+            return;
+        }
+
+        long elapsedMs = SystemClock.elapsedRealtime() - mMiniDrillTimeoutStartedMs;
+        long remainingMs = Math.max(0, mMiniDrillTimeoutMs - elapsedMs);
+        int progress = (int) (remainingMs * MINI_DRILL_TIMEOUT_PROGRESS_MAX / mMiniDrillTimeoutMs);
+        timeoutProgress.setProgress(progress);
+
+        if (remainingMs > 0) {
+            mMiniDrillHandler.postDelayed(mMiniDrillProgressTick, MINI_DRILL_PROGRESS_UPDATE_MS);
+        }
+    }
+
+    private boolean isMiniDrillHookShown() {
+        return isMiniDrillOverlayShown() && !mMiniDrillCommitted && !mMiniDrillRevealed;
+    }
+
+    private void commitMiniDrillHook() {
+        if (mMiniDrillCard == null || mMiniDrillCallback == null || mMiniDrillHandled || mMiniDrillCommitted) {
+            return;
+        }
+
+        mMiniDrillCommitted = true;
+        stopMiniDrillTimeout();
+        renderMiniDrillOverlay(mMiniDrillCard, false, true, 0);
+    }
+
+    private void stopMiniDrillTimeout() {
+        mMiniDrillHandler.removeCallbacks(mMiniDrillTimeout);
+        mMiniDrillHandler.removeCallbacks(mMiniDrillProgressTick);
+        mMiniDrillTimeoutStartedMs = 0;
+        mMiniDrillTimeoutMs = 0;
     }
 
     private void runMiniDrillAction(Runnable action) {
@@ -1074,7 +1571,7 @@ public class PlaybackFragment extends SeekModePlaybackFragment implements Playba
         }
 
         mMiniDrillHandled = true;
-        mMiniDrillHandler.removeCallbacks(mMiniDrillTimeout);
+        stopMiniDrillTimeout();
         action.run();
     }
 
@@ -1085,6 +1582,7 @@ public class PlaybackFragment extends SeekModePlaybackFragment implements Playba
 
         MiniDrillUi.Callback callback = mMiniDrillCallback;
         mMiniDrillHandled = true;
+        stopMiniDrillTimeout();
         dismissMiniDrillOverlay();
         callback.onIgnored();
     }

@@ -48,69 +48,161 @@
         android:visibility="gone"/>
 
     <LinearLayout
-        android:id="@+id/mini_drill_before_actions"
+        android:id="@+id/mini_drill_actions"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:layout_marginTop="12dp"
-        android:gravity="right"
+        android:baselineAligned="false"
+        android:gravity="right|center_vertical"
         android:orientation="horizontal">
 
-        <Button
-            android:id="@+id/mini_drill_reveal"
+        <LinearLayout
+            android:id="@+id/mini_drill_before_actions"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:text="Reveal"/>
+            android:baselineAligned="false"
+            android:gravity="right|center_vertical"
+            android:orientation="horizontal">
+
+            <Button
+                android:id="@+id/mini_drill_reveal"
+                android:layout_width="wrap_content"
+                android:layout_height="36dp"
+                android:minHeight="0dp"
+                android:includeFontPadding="false"
+                android:gravity="center"
+                android:minWidth="56dp"
+                android:paddingLeft="8dp"
+                android:paddingRight="8dp"
+                android:paddingTop="0dp"
+                android:paddingBottom="0dp"
+                android:text="Reveal"
+                android:textAllCaps="false"
+                android:textSize="12sp"/>
+
+            <Button
+                android:id="@+id/mini_drill_later"
+                android:layout_width="wrap_content"
+                android:layout_height="36dp"
+                android:minHeight="0dp"
+                android:includeFontPadding="false"
+                android:gravity="center"
+                android:layout_marginLeft="6dp"
+                android:minWidth="52dp"
+                android:paddingLeft="8dp"
+                android:paddingRight="8dp"
+                android:paddingTop="0dp"
+                android:paddingBottom="0dp"
+                android:text="Later"
+                android:textAllCaps="false"
+                android:textSize="12sp"/>
+
+            <Button
+                android:id="@+id/mini_drill_skip"
+                android:layout_width="wrap_content"
+                android:layout_height="36dp"
+                android:minHeight="0dp"
+                android:includeFontPadding="false"
+                android:gravity="center"
+                android:layout_marginLeft="6dp"
+                android:minWidth="40dp"
+                android:paddingLeft="8dp"
+                android:paddingRight="8dp"
+                android:paddingTop="0dp"
+                android:paddingBottom="0dp"
+                android:text="⏭"
+                android:textAllCaps="false"
+                android:textSize="14sp"/>
+        </LinearLayout>
+
+        <LinearLayout
+            android:id="@+id/mini_drill_after_actions"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:baselineAligned="false"
+            android:gravity="right|center_vertical"
+            android:orientation="horizontal"
+            android:visibility="gone">
+
+            <Button
+                android:id="@+id/mini_drill_easy"
+                android:layout_width="wrap_content"
+                android:layout_height="36dp"
+                android:minHeight="0dp"
+                android:includeFontPadding="false"
+                android:gravity="center"
+                android:minWidth="48dp"
+                android:paddingLeft="8dp"
+                android:paddingRight="8dp"
+                android:paddingTop="0dp"
+                android:paddingBottom="0dp"
+                android:text="Easy"
+                android:textAllCaps="false"
+                android:textSize="12sp"/>
+
+            <Button
+                android:id="@+id/mini_drill_hard"
+                android:layout_width="wrap_content"
+                android:layout_height="36dp"
+                android:minHeight="0dp"
+                android:includeFontPadding="false"
+                android:gravity="center"
+                android:layout_marginLeft="6dp"
+                android:minWidth="48dp"
+                android:paddingLeft="8dp"
+                android:paddingRight="8dp"
+                android:paddingTop="0dp"
+                android:paddingBottom="0dp"
+                android:text="Hard"
+                android:textAllCaps="false"
+                android:textSize="12sp"/>
+
+            <Button
+                android:id="@+id/mini_drill_again_later"
+                android:layout_width="wrap_content"
+                android:layout_height="36dp"
+                android:minHeight="0dp"
+                android:includeFontPadding="false"
+                android:gravity="center"
+                android:layout_marginLeft="6dp"
+                android:minWidth="78dp"
+                android:paddingLeft="8dp"
+                android:paddingRight="8dp"
+                android:paddingTop="0dp"
+                android:paddingBottom="0dp"
+                android:text="Again later"
+                android:textAllCaps="false"
+                android:textSize="12sp"/>
+        </LinearLayout>
 
         <Button
-            android:id="@+id/mini_drill_later"
+            android:id="@+id/mini_drill_annoying"
             android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:layout_marginLeft="8dp"
-            android:text="Later"/>
-
-        <Button
-            android:id="@+id/mini_drill_skip"
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:layout_marginLeft="8dp"
-            android:text="Skip"/>
+            android:layout_height="36dp"
+            android:layout_marginLeft="6dp"
+            android:gravity="center"
+            android:includeFontPadding="false"
+            android:minHeight="0dp"
+            android:minWidth="40dp"
+            android:paddingLeft="8dp"
+            android:paddingRight="8dp"
+            android:paddingTop="0dp"
+            android:paddingBottom="0dp"
+            android:text="🙄"
+            android:textAllCaps="false"
+            android:textSize="14sp"/>
     </LinearLayout>
 
-    <LinearLayout
-        android:id="@+id/mini_drill_after_actions"
+    <ProgressBar
+        android:id="@+id/mini_drill_timeout_progress"
+        style="@android:style/Widget.ProgressBar.Horizontal"
         android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:layout_marginTop="12dp"
-        android:gravity="right"
-        android:orientation="horizontal"
-        android:visibility="gone">
-
-        <Button
-            android:id="@+id/mini_drill_easy"
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:text="Easy"/>
-
-        <Button
-            android:id="@+id/mini_drill_hard"
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:layout_marginLeft="8dp"
-            android:text="Hard"/>
-
-        <Button
-            android:id="@+id/mini_drill_again_later"
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:layout_marginLeft="8dp"
-            android:text="Again later"/>
-    </LinearLayout>
-
-    <Button
-        android:id="@+id/mini_drill_annoying"
-        android:layout_width="wrap_content"
-        android:layout_height="wrap_content"
-        android:layout_gravity="right"
-        android:layout_marginTop="4dp"
-        android:text="Annoying"/>
+        android:layout_height="3dp"
+        android:layout_marginTop="10dp"
+        android:indeterminate="false"
+        android:max="1000"
+        android:maxHeight="3dp"
+        android:minHeight="3dp"
+        android:progress="1000"
+        android:progressDrawable="@drawable/mini_drill_timeout_progress"/>
 </LinearLayout>

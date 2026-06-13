@@ -146,7 +146,7 @@ public class MiniDrillConfig {
             return new FrequencyConfig(
                     mode,
                     interval,
-                    object != null ? object.optInt("minimumOverlayIntervalSeconds", 90) : 90,
+                    object != null ? object.optInt("minimumOverlayIntervalSeconds", 0) : 0,
                     object != null ? object.optInt("maxOverlayCardsPerVideo", 12) : 12,
                     object != null ? object.optInt("cooldownAfterDismissSeconds", 45) : 45,
                     object != null ? object.optInt("cooldownAfterAnnoyingSeconds", 900) : 900);

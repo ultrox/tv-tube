@@ -126,4 +126,20 @@
             android:transitionGroup="true"
             android:layout_height="match_parent"
             android:layout_width="match_parent"/>
+
+    <Button
+        android:id="@+id/mini_drill_dev_trigger"
+        android:layout_width="wrap_content"
+        android:layout_height="48dp"
+        android:layout_gravity="top|left"
+        android:layout_marginLeft="24dp"
+        android:layout_marginTop="24dp"
+        android:focusable="true"
+        android:focusableInTouchMode="true"
+        android:minWidth="150dp"
+        android:paddingLeft="18dp"
+        android:paddingRight="18dp"
+        android:text="Mini Drill Now"
+        android:textAllCaps="false"
+        android:visibility="gone"/>
 </FrameLayout>

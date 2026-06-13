@@ -18,7 +18,9 @@ import io.reactivex.disposables.Disposable;
 
 public class MiniDrillController extends BasePlayerController {
     private static final String TAG = MiniDrillController.class.getSimpleName();
+    private static final long PLAYBACK_OVERLAY_CHECK_MS = 1_000;
     private final Handler mHandler = new Handler(Looper.getMainLooper());
+    private final Runnable mPlaybackOverlayCheck = this::runPlaybackOverlayCheck;
     private final MiniDrillSession mSession = new MiniDrillSession();
     private final MiniDrillScheduler mScheduler = new MiniDrillScheduler();
     private MiniDrillConfig mConfig;
@@ -30,6 +32,7 @@ public class MiniDrillController extends BasePlayerController {
     private int mOverlayCardsShown;
     private long mLastOverlayPlaybackSeconds;
     private long mNextAllowedOverlayPlaybackSeconds;
+    private boolean mOverlayScheduleStarted;
 
     @Override
     public void onInit() {
@@ -45,31 +48,42 @@ public class MiniDrillController extends BasePlayerController {
         mOverlayCardsShown = 0;
         mLastOverlayPlaybackSeconds = 0;
         mNextAllowedOverlayPlaybackSeconds = 0;
+        mOverlayScheduleStarted = false;
         dismissOverlay();
+        startPlaybackOverlayChecks();
     }
 
     @Override
     public void onPlay() {
         mPauseCardShownForCurrentPause = false;
+        startPlaybackOverlayChecks();
     }
 
     @Override
     public void onPause() {
+        stopPlaybackOverlayChecks();
         maybeShowPauseCard();
     }
 
     @Override
     public void onPlayEnd() {
+        stopPlaybackOverlayChecks();
         maybeShowEndReview();
     }
 
     @Override
-    public void onTickle() {
-        maybeShowPlaybackOverlay();
+    public void onViewPaused() {
+        stopPlaybackOverlayChecks();
+    }
+
+    @Override
+    public void onViewResumed() {
+        startPlaybackOverlayChecks();
     }
 
     @Override
     public void onEngineReleased() {
+        stopPlaybackOverlayChecks();
         dismissOverlay();
 
         if (mSpeechPlayer != null) {
@@ -79,6 +93,7 @@ public class MiniDrillController extends BasePlayerController {
 
     @Override
     public void onFinish() {
+        stopPlaybackOverlayChecks();
         RxHelper.disposeActions(mConfigAction);
         dismissOverlay();
 
@@ -103,8 +118,26 @@ public class MiniDrillController extends BasePlayerController {
                 config -> {
                     mConfig = config;
                     mSpeechPlayer.configure(config);
+                    startPlaybackOverlayChecks();
                 },
                 error -> Log.e(TAG, "Config load error: %s", error.getMessage()));
+    }
+
+    private void runPlaybackOverlayCheck() {
+        maybeShowPlaybackOverlay();
+        startPlaybackOverlayChecks();
+    }
+
+    private void startPlaybackOverlayChecks() {
+        mHandler.removeCallbacks(mPlaybackOverlayCheck);
+
+        if (getPlayer() != null && getPlayer().isPlaying()) {
+            mHandler.postDelayed(mPlaybackOverlayCheck, PLAYBACK_OVERLAY_CHECK_MS);
+        }
+    }
+
+    private void stopPlaybackOverlayChecks() {
+        mHandler.removeCallbacks(mPlaybackOverlayCheck);
     }
 
     private void maybeShowPlaybackOverlay() {
@@ -113,6 +146,12 @@ public class MiniDrillController extends BasePlayerController {
         }
 
         long positionSeconds = getPlayer().getPositionMs() / 1_000;
+
+        if (!mOverlayScheduleStarted) {
+            mOverlayScheduleStarted = true;
+            mLastOverlayPlaybackSeconds = positionSeconds;
+            return;
+        }
         MiniDrillScheduler.Inputs inputs = createSchedulerInputs(positionSeconds);
         inputs.videoPlaying = getPlayer().isPlaying();
         inputs.overlayVisible = ((MiniDrillUi) getPlayer()).isMiniDrillOverlayShown() || getPlayer().isOverlayShown();
@@ -131,7 +170,31 @@ public class MiniDrillController extends BasePlayerController {
         showOverlay(card, false);
     }
 
+    public void showDevOverlayNow() {
+        if (!hasUsableConfig() || getPlayer() == null || !(getPlayer() instanceof MiniDrillUi)) {
+            return;
+        }
+
+        MiniDrillUi ui = (MiniDrillUi) getPlayer();
+
+        if (ui.isMiniDrillOverlayShown()) {
+            return;
+        }
+
+        MiniDrillCard card = mSession.pickCard(mConfig.cards);
+
+        if (card == null) {
+            return;
+        }
+
+        showOverlay(card, false, false);
+    }
+
     private void showOverlay(MiniDrillCard card, boolean revealed) {
+        showOverlay(card, revealed, true);
+    }
+
+    private void showOverlay(MiniDrillCard card, boolean revealed, boolean countForFrequency) {
         if (getPlayer() == null || !(getPlayer() instanceof MiniDrillUi)) {
             return;
         }
@@ -142,8 +205,10 @@ public class MiniDrillController extends BasePlayerController {
 
         if (!revealed) {
             mSession.markShown(card);
-            mOverlayCardsShown++;
-            mLastOverlayPlaybackSeconds = getPlayer().getPositionMs() / 1_000;
+            if (countForFrequency) {
+                mOverlayCardsShown++;
+                mLastOverlayPlaybackSeconds = getPlayer().getPositionMs() / 1_000;
+            }
         }
 
         int timeoutMs = Math.max(1, mConfig.playbackOverlay.visibleSeconds) * 1_000;
@@ -298,7 +363,7 @@ public class MiniDrillController extends BasePlayerController {
                 mSession.markSnoozed(card);
                 dialog.closeDialog();
             }));
-            dialog.appendSingleButton(UiOptionItem.from("Annoying", option -> {
+            dialog.appendSingleButton(UiOptionItem.from("🙄", option -> {
                 handled[0] = true;
                 mSession.markDisabledForSession(card);
                 dialog.closeDialog();
