@@ -116,6 +116,7 @@ public class PlaybackFragment extends SeekModePlaybackFragment implements Playba
     private static final int SUGGESTIONS_START_INDEX = 1;
     private static final int MINI_DRILL_TIMEOUT_PROGRESS_MAX = 1_000;
     private static final long MINI_DRILL_PROGRESS_UPDATE_MS = 100;
+    private static final long MINI_DRILL_AFTER_SEEK_BLOCK_MS = 8_000;
 
     private enum InputScopeResult {
         UNHANDLED,
@@ -166,6 +167,7 @@ public class PlaybackFragment extends SeekModePlaybackFragment implements Playba
     private boolean mMiniDrillHandled;
     private boolean mMiniDrillRevealed;
     private boolean mMiniDrillCommitted;
+    private long mMiniDrillBlockedUntilMs;
     private long mMiniDrillTimeoutStartedMs;
     private int mMiniDrillTimeoutMs;
 
@@ -368,6 +370,7 @@ public class PlaybackFragment extends SeekModePlaybackFragment implements Playba
 
     @Override
     protected void onSeekPositionChanged(long positionMs) {
+        blockMiniDrillAfterSeek();
         mPlaybackPresenter.onSeekPositionChanged(positionMs);
     }
 
@@ -1313,6 +1316,20 @@ public class PlaybackFragment extends SeekModePlaybackFragment implements Playba
     @Override
     public boolean isMiniDrillOverlayShown() {
         return mMiniDrillOverlay != null && mMiniDrillOverlay.getVisibility() == View.VISIBLE;
+    }
+
+    @Override
+    public boolean isMiniDrillPlaybackBlocked() {
+        return isOverlayShown() || isMiniDrillSeekBlocked();
+    }
+
+    private boolean isMiniDrillSeekBlocked() {
+        return (mPlayerGlue != null && mPlayerGlue.isSeeking()) ||
+                SystemClock.elapsedRealtime() < mMiniDrillBlockedUntilMs;
+    }
+
+    private void blockMiniDrillAfterSeek() {
+        mMiniDrillBlockedUntilMs = SystemClock.elapsedRealtime() + MINI_DRILL_AFTER_SEEK_BLOCK_MS;
     }
 
     private View getMiniDrillOverlay() {

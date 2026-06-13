@@ -19,6 +19,7 @@ import io.reactivex.disposables.Disposable;
 public class MiniDrillController extends BasePlayerController {
     private static final String TAG = MiniDrillController.class.getSimpleName();
     private static final long PLAYBACK_OVERLAY_CHECK_MS = 1_000;
+    private static final int PLAYBACK_OVERLAY_SEEK_COOLDOWN_SECONDS = 15;
     private final Handler mHandler = new Handler(Looper.getMainLooper());
     private final Runnable mPlaybackOverlayCheck = this::runPlaybackOverlayCheck;
     private final MiniDrillSession mSession = new MiniDrillSession();
@@ -62,7 +63,6 @@ public class MiniDrillController extends BasePlayerController {
     @Override
     public void onPause() {
         stopPlaybackOverlayChecks();
-        maybeShowPauseCard();
     }
 
     @Override
@@ -79,6 +79,16 @@ public class MiniDrillController extends BasePlayerController {
     @Override
     public void onViewResumed() {
         startPlaybackOverlayChecks();
+    }
+
+    @Override
+    public void onSeekPositionChanged(long positionMs) {
+        long positionSeconds = positionMs / 1_000;
+        mOverlayScheduleStarted = true;
+        mLastOverlayPlaybackSeconds = positionSeconds;
+        mNextAllowedOverlayPlaybackSeconds = Math.max(
+                mNextAllowedOverlayPlaybackSeconds,
+                positionSeconds + PLAYBACK_OVERLAY_SEEK_COOLDOWN_SECONDS);
     }
 
     @Override
@@ -152,9 +162,10 @@ public class MiniDrillController extends BasePlayerController {
             mLastOverlayPlaybackSeconds = positionSeconds;
             return;
         }
+        MiniDrillUi ui = (MiniDrillUi) getPlayer();
         MiniDrillScheduler.Inputs inputs = createSchedulerInputs(positionSeconds);
         inputs.videoPlaying = getPlayer().isPlaying();
-        inputs.overlayVisible = ((MiniDrillUi) getPlayer()).isMiniDrillOverlayShown() || getPlayer().isOverlayShown();
+        inputs.overlayVisible = ui.isMiniDrillOverlayShown() || ui.isMiniDrillPlaybackBlocked() || getPlayer().isOverlayShown();
         inputs.modalVisible = isModalVisible();
 
         if (mScheduler.evaluate(inputs) != MiniDrillScheduler.Decision.SHOW_OVERLAY) {

@@ -4,6 +4,7 @@ public interface MiniDrillUi {
     void showMiniDrillOverlay(MiniDrillCard card, boolean revealed, Callback callback, int timeoutMs);
     void dismissMiniDrillOverlay();
     boolean isMiniDrillOverlayShown();
+    boolean isMiniDrillPlaybackBlocked();
 
     interface Callback {
         void onReveal();
