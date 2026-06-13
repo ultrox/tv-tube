@@ -76,8 +76,10 @@
                 android:paddingRight="8dp"
                 android:paddingTop="0dp"
                 android:paddingBottom="0dp"
+                android:background="@drawable/mini_drill_action_button"
                 android:text="Reveal"
                 android:textAllCaps="false"
+                android:textColor="@color/mini_drill_action_text"
                 android:textSize="12sp"/>
 
             <Button
@@ -93,8 +95,10 @@
                 android:paddingRight="8dp"
                 android:paddingTop="0dp"
                 android:paddingBottom="0dp"
+                android:background="@drawable/mini_drill_action_button"
                 android:text="Later"
                 android:textAllCaps="false"
+                android:textColor="@color/mini_drill_action_text"
                 android:textSize="12sp"/>
 
             <Button
@@ -110,8 +114,10 @@
                 android:paddingRight="8dp"
                 android:paddingTop="0dp"
                 android:paddingBottom="0dp"
+                android:background="@drawable/mini_drill_action_button"
                 android:text="⏭"
                 android:textAllCaps="false"
+                android:textColor="@color/mini_drill_action_text"
                 android:textSize="14sp"/>
         </LinearLayout>
 
@@ -136,8 +142,10 @@
                 android:paddingRight="8dp"
                 android:paddingTop="0dp"
                 android:paddingBottom="0dp"
+                android:background="@drawable/mini_drill_action_button"
                 android:text="Easy"
                 android:textAllCaps="false"
+                android:textColor="@color/mini_drill_action_text"
                 android:textSize="12sp"/>
 
             <Button
@@ -153,8 +161,10 @@
                 android:paddingRight="8dp"
                 android:paddingTop="0dp"
                 android:paddingBottom="0dp"
+                android:background="@drawable/mini_drill_action_button"
                 android:text="Hard"
                 android:textAllCaps="false"
+                android:textColor="@color/mini_drill_action_text"
                 android:textSize="12sp"/>
 
             <Button
@@ -170,8 +180,10 @@
                 android:paddingRight="8dp"
                 android:paddingTop="0dp"
                 android:paddingBottom="0dp"
+                android:background="@drawable/mini_drill_action_button"
                 android:text="Again later"
                 android:textAllCaps="false"
+                android:textColor="@color/mini_drill_action_text"
                 android:textSize="12sp"/>
         </LinearLayout>
 
@@ -188,8 +200,10 @@
             android:paddingRight="8dp"
             android:paddingTop="0dp"
             android:paddingBottom="0dp"
+            android:background="@drawable/mini_drill_action_button"
             android:text="🙄"
             android:textAllCaps="false"
+            android:textColor="@color/mini_drill_action_text"
             android:textSize="14sp"/>
     </LinearLayout>
 
