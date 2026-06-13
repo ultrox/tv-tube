@@ -1,0 +1,151 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+adb_cmd="${ADB:-/opt/homebrew/bin/adb}"
+
+if [[ ! -x "$adb_cmd" ]]; then
+  adb_cmd="${ADB:-adb}"
+fi
+
+usage() {
+  cat <<'EOF'
+Usage:
+  scripts/tv-remote              Interactive Android TV remote
+  scripts/tv-remote <button>     Send one remote button
+
+Buttons:
+  up, down, left, right, ok, back
+  play, pause, play-pause, rewind, forward, menu, home
+
+Interactive keys:
+  Arrow keys / h j k l / wasd  Move focus
+  Enter / Space         OK
+  Esc / b / Backspace   Back
+  p                     Play/Pause
+  r                     Rewind
+  f                     Forward
+  m                     Menu
+  q                     Quit helper
+
+Environment:
+  ANDROID_SERIAL        Target a specific emulator/device
+  ADB                   Override adb path
+EOF
+}
+
+keycode_for_button() {
+  case "$1" in
+    up|u|k|w) printf '%s\n' 19 ;;
+    down|j|s) printf '%s\n' 20 ;;
+    left|h|a) printf '%s\n' 21 ;;
+    right|rgt|rt|l|d) printf '%s\n' 22 ;;
+    ok|enter|center|select) printf '%s\n' 23 ;;
+    back|escape|esc) printf '%s\n' 4 ;;
+    play|pause|play-pause|play_pause) printf '%s\n' 85 ;;
+    rewind|rw) printf '%s\n' 89 ;;
+    forward|ff|fast-forward|fast_forward) printf '%s\n' 90 ;;
+    menu) printf '%s\n' 82 ;;
+    home) printf '%s\n' 3 ;;
+    *)
+      printf 'Unknown button: %s\n\n' "$1" >&2
+      usage >&2
+      exit 2
+      ;;
+  esac
+}
+
+send_keycode() {
+  local keycode="$1"
+  local adb_args=("$adb_cmd")
+  if [[ -n "${ANDROID_SERIAL:-}" ]]; then
+    adb_args+=("-s" "$ANDROID_SERIAL")
+  fi
+  "${adb_args[@]}" shell input keyevent "$keycode" >/dev/null
+}
+
+send_button() {
+  send_keycode "$(keycode_for_button "$1")"
+}
+
+pick_device_if_needed() {
+  if [[ -n "${ANDROID_SERIAL:-}" ]]; then
+    return
+  fi
+
+  local serials count
+  serials="$("$adb_cmd" devices | awk 'NR > 1 && $2 == "device" { print $1 }')"
+  count="$(printf '%s\n' "$serials" | sed '/^$/d' | wc -l | tr -d ' ')"
+
+  if [[ "$count" -eq 0 ]]; then
+    printf 'No connected ADB device. Start/connect the Android TV emulator first.\n' >&2
+    exit 1
+  fi
+
+  if [[ "$count" -gt 1 ]]; then
+    printf 'Multiple ADB devices connected. Set ANDROID_SERIAL to one of:\n' >&2
+    printf '%s\n' "$serials" >&2
+    exit 1
+  fi
+
+  export ANDROID_SERIAL="$serials"
+}
+
+interactive_remote() {
+  if [[ ! -t 0 ]]; then
+    printf 'Interactive mode needs a terminal. Use scripts/tv-remote <button> for one-shot mode.\n' >&2
+    exit 1
+  fi
+
+  local old_stty key rest
+  old_stty="$(stty -g)"
+  trap 'stty "$old_stty"' EXIT INT TERM
+  stty -echo -icanon min 0 time 1
+
+  printf 'Android TV remote -> %s\n' "$ANDROID_SERIAL"
+  printf 'Arrows/hjkl/wasd move, Enter/Space OK, Esc/b Back, p Play/Pause, q Quit\n'
+
+  while true; do
+    key=''
+    IFS= read -rsn1 key || true
+    [[ -z "$key" ]] && continue
+
+    case "$key" in
+      $'\x1b')
+        rest=''
+        IFS= read -rsn2 rest || true
+        case "$rest" in
+          '[A') send_button up ;;
+          '[B') send_button down ;;
+          '[C') send_button right ;;
+          '[D') send_button left ;;
+          *) send_button back ;;
+        esac
+        ;;
+      $'\n'|$'\r'|' ') send_button ok ;;
+      $'\x7f'|b) send_button back ;;
+      h|a) send_button left ;;
+      j|s) send_button down ;;
+      k|w) send_button up ;;
+      l|d) send_button right ;;
+      p) send_button play-pause ;;
+      r) send_button rewind ;;
+      f) send_button forward ;;
+      m) send_button menu ;;
+      q) break ;;
+    esac
+  done
+}
+
+if [[ "${1:-}" == "-h" || "${1:-}" == "--help" ]]; then
+  usage
+  exit 0
+fi
+
+pick_device_if_needed
+
+if [[ $# -gt 0 ]]; then
+  send_button "$1"
+  exit 0
+fi
+
+interactive_remote
