@@ -92,6 +92,14 @@
             style="?attr/playbackControlsTimeStyle"/>
     </LinearLayout>
 
+    <include
+        layout="@layout/view_mini_drill_overlay"
+        android:layout_width="390dp"
+        android:layout_height="wrap_content"
+        android:layout_gravity="bottom|right"
+        android:layout_marginRight="36dp"
+        android:layout_marginBottom="92dp"/>
+
     <!-- Add debug view -->
     <FrameLayout android:id="@+id/debug_view_group"
                  android:layout_width="wrap_content"

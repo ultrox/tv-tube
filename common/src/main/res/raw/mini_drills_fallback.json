@@ -1,0 +1,61 @@
+{
+  "schemaVersion": 1,
+  "contentVersion": "bundled-fallback-1",
+  "miniDrills": {
+    "enabled": true,
+    "displayName": "Mini Drills",
+    "surfaces": {
+      "playbackOverlay": {"enabled": true, "visibleSeconds": 8},
+      "pauseCard": {"enabled": true},
+      "endReview": {"enabled": true}
+    },
+    "frequency": {
+      "mode": "normal",
+      "modes": {
+        "off": {"enabled": false, "overlayIntervalSeconds": 0},
+        "low": {"enabled": true, "overlayIntervalSeconds": 600},
+        "normal": {"enabled": true, "overlayIntervalSeconds": 300},
+        "high": {"enabled": true, "overlayIntervalSeconds": 150},
+        "custom": {"enabled": true, "overlayIntervalSeconds": 240}
+      },
+      "minimumOverlayIntervalSeconds": 90,
+      "maxOverlayCardsPerVideo": 12,
+      "cooldownAfterDismissSeconds": 45,
+      "cooldownAfterAnnoyingSeconds": 900
+    },
+    "audio": {
+      "enabled": true,
+      "playbackOverlay": {"autoPlayAnswerAfterReveal": true, "duckVideoAudioWhileSpeaking": true, "videoDuckVolume": 0.35},
+      "pauseCard": {"autoPlayAnswerAfterReveal": true, "duckVideoAudioWhileSpeaking": false},
+      "endReview": {"autoPlayAnswerAfterReveal": false},
+      "ttsFallback": {"speechRate": 0.9, "pitch": 1.0}
+    }
+  },
+  "cards": [
+    {
+      "id": "depends-on-situation",
+      "enabled": true,
+      "type": "translation",
+      "difficulty": "easy",
+      "tags": ["daily-life"],
+      "prompt": {"language": "sr-RS", "text": "Zavisi od situacije.", "displayPrefix": "Kako kazes?", "audio": {"kind": "tts", "text": "Zavisi od situacije.", "language": "sr-RS"}},
+      "hint": {"enabled": true, "text": "Das kommt ..."},
+      "answers": [
+        {"text": "Das kommt darauf an.", "language": "de-DE", "preferred": true, "audio": {"kind": "tts", "text": "Das kommt darauf an.", "language": "de-DE"}},
+        {"text": "Es haengt von der Situation ab.", "language": "de-DE", "preferred": false, "audio": {"kind": "tts", "text": "Es haengt von der Situation ab.", "language": "de-DE"}}
+      ]
+    },
+    {
+      "id": "no-idea",
+      "enabled": true,
+      "type": "translation",
+      "difficulty": "easy",
+      "tags": ["daily-life"],
+      "prompt": {"language": "sr-RS", "text": "Nemam pojma.", "displayPrefix": "Kako kazes?", "audio": {"kind": "tts", "text": "Nemam pojma.", "language": "sr-RS"}},
+      "hint": {"enabled": true, "text": "Keine ..."},
+      "answers": [
+        {"text": "Keine Ahnung.", "language": "de-DE", "preferred": true, "audio": {"kind": "tts", "text": "Keine Ahnung.", "language": "de-DE"}}
+      ]
+    }
+  ]
+}

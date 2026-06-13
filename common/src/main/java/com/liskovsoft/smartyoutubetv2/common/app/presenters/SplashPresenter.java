@@ -13,6 +13,7 @@ import com.liskovsoft.sharedutils.prefs.GlobalPreferences;
 import com.liskovsoft.sharedutils.rx.RxHelper;
 import com.liskovsoft.smartyoutubetv2.common.R;
 import com.liskovsoft.smartyoutubetv2.common.app.models.data.Video;
+import com.liskovsoft.smartyoutubetv2.common.app.models.minidrills.MiniDrillConfigSource;
 import com.liskovsoft.smartyoutubetv2.common.app.models.playback.service.VideoStateService;
 import com.liskovsoft.smartyoutubetv2.common.app.presenters.base.BasePresenter;
 import com.liskovsoft.smartyoutubetv2.common.app.presenters.dialogs.AccountSelectionPresenter;
@@ -92,6 +93,7 @@ public class SplashPresenter extends BasePresenter<SplashView> {
             initGlobalPrefs();
             initProxy();
             initVideoStateService();
+            MiniDrillConfigSource.prefetch(getContext());
             initStreamReminderService();
         }
     }
