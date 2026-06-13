@@ -25,6 +25,7 @@ public class MiniDrillController extends BasePlayerController {
     private final MiniDrillSession mSession = new MiniDrillSession();
     private final MiniDrillScheduler mScheduler = new MiniDrillScheduler();
     private MiniDrillConfig mConfig;
+    private MiniDrillSettings mSettings;
     private MiniDrillSpeechPlayer mSpeechPlayer;
     private Disposable mConfigAction;
     private MiniDrillCard mOverlayCard;
@@ -113,9 +114,17 @@ public class MiniDrillController extends BasePlayerController {
         }
     }
 
+    public void reloadConfig() {
+        loadConfig();
+    }
+
     private void loadConfig() {
         if (getContext() == null) {
             return;
+        }
+
+        if (mSettings == null) {
+            mSettings = MiniDrillSettings.instance(getContext());
         }
 
         if (mSpeechPlayer == null) {
@@ -498,6 +507,9 @@ public class MiniDrillController extends BasePlayerController {
         MiniDrillScheduler.Inputs inputs = new MiniDrillScheduler.Inputs();
         inputs.config = mConfig;
         inputs.playbackSeconds = positionSeconds;
+        inputs.miniDrillsEnabled = mSettings != null ? mSettings.isEnabled(mConfig) : mConfig.enabled;
+        inputs.overlayFrequencyEnabled = mSettings != null ? mSettings.isEffectiveOverlayFrequencyEnabled(mConfig) : mConfig.frequency.isOverlayEnabled();
+        inputs.overlayIntervalSeconds = mSettings != null ? mSettings.getEffectiveOverlayIntervalSeconds(mConfig) : mConfig.frequency.intervalSeconds;
         inputs.overlayCardsShown = mOverlayCardsShown;
         inputs.lastOverlayPlaybackSeconds = mLastOverlayPlaybackSeconds;
         inputs.nextAllowedOverlayPlaybackSeconds = mNextAllowedOverlayPlaybackSeconds;
@@ -506,7 +518,8 @@ public class MiniDrillController extends BasePlayerController {
     }
 
     private boolean hasUsableConfig() {
-        return mConfig != null && mConfig.enabled && mConfig.cards != null && !mConfig.cards.isEmpty();
+        return mConfig != null && (mSettings != null ? mSettings.isEnabled(mConfig) : mConfig.enabled) &&
+                mConfig.cards != null && !mConfig.cards.isEmpty();
     }
 
     private boolean isModalVisible() {

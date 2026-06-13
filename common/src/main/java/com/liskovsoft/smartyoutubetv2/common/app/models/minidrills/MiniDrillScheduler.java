@@ -9,7 +9,7 @@ public class MiniDrillScheduler {
     }
 
     public Decision evaluate(Inputs inputs) {
-        if (inputs == null || inputs.config == null || !inputs.config.enabled) {
+        if (inputs == null || inputs.config == null || !inputs.miniDrillsEnabled) {
             return Decision.SHOW_NOTHING;
         }
 
@@ -21,7 +21,7 @@ public class MiniDrillScheduler {
             return Decision.SHOW_PAUSE_CARD;
         }
 
-        if (!inputs.videoPlaying || !inputs.config.playbackOverlay.enabled || !inputs.config.frequency.isOverlayEnabled()) {
+        if (!inputs.videoPlaying || !inputs.config.playbackOverlay.enabled || !inputs.overlayFrequencyEnabled) {
             return Decision.SHOW_NOTHING;
         }
 
@@ -29,7 +29,7 @@ public class MiniDrillScheduler {
             return Decision.SHOW_NOTHING;
         }
 
-        int intervalSeconds = Math.max(inputs.config.frequency.intervalSeconds, inputs.config.frequency.minimumOverlayIntervalSeconds);
+        int intervalSeconds = Math.max(inputs.overlayIntervalSeconds, inputs.config.frequency.minimumOverlayIntervalSeconds);
 
         if (inputs.playbackSeconds - inputs.lastOverlayPlaybackSeconds < intervalSeconds) {
             return Decision.SHOW_NOTHING;
@@ -45,6 +45,9 @@ public class MiniDrillScheduler {
     public static class Inputs {
         public MiniDrillConfig config;
         public long playbackSeconds;
+        public boolean miniDrillsEnabled;
+        public boolean overlayFrequencyEnabled;
+        public int overlayIntervalSeconds;
         public boolean videoPlaying;
         public boolean videoPaused;
         public boolean videoEnded;
