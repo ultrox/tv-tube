@@ -74,6 +74,11 @@ public final class DebugInfoManager implements Runnable, Player.EventListener {
     private final List<Pair<String, String>> mDisplayModeId = new ArrayList<>();
     private final List<Pair<String, String>> mDisplayInfo = new ArrayList<>();
     private final String mAppVersion;
+    private final DebugInfoProvider mMiniDrillsDebugInfoProvider;
+
+    public interface DebugInfoProvider {
+        CharSequence getDebugInfo();
+    }
 
     /**
      * @param debugViewGroup The container that should be updated to display the information.
@@ -81,12 +86,18 @@ public final class DebugInfoManager implements Runnable, Player.EventListener {
      * @param playerInitializer The {@link ExoPlayerInitializer} from which debug information should be obtained.
      */
     public DebugInfoManager(ViewGroup debugViewGroup, SimpleExoPlayer player, ExoPlayerInitializer playerInitializer) {
+        this(debugViewGroup, player, playerInitializer, null);
+    }
+
+    public DebugInfoManager(ViewGroup debugViewGroup, SimpleExoPlayer player, ExoPlayerInitializer playerInitializer,
+                            DebugInfoProvider miniDrillsDebugInfoProvider) {
         mContext = debugViewGroup.getContext();
         mDebugViewGroup = debugViewGroup;
         mPlayer = player;
         mPlayerInitializer = playerInitializer;
         mTextSize = mContext.getResources().getDimension(R.dimen.debug_text_size);
         mAppVersion = String.format("%s version", mContext.getString(R.string.app_name));
+        mMiniDrillsDebugInfoProvider = miniDrillsDebugInfoProvider;
         inflate();
     }
 
@@ -202,6 +213,7 @@ public final class DebugInfoManager implements Runnable, Player.EventListener {
 
         appendVideoInfo();
         appendRuntimeInfo();
+        appendMiniDrillsInfo();
         appendPlayerState();
         appendDisplayInfo();
         appendDisplayModeId();
@@ -291,6 +303,18 @@ public final class DebugInfoManager implements Runnable, Player.EventListener {
         counters.ensureUpdated();
         appendRow("Dropped/Rendered frames", counters.droppedBufferCount + "/" + counters.renderedOutputBufferCount);
         appendRow("Buffer size (seconds)", (int)(mPlayer.getBufferedPosition() - mPlayer.getCurrentPosition()) / 1_000);
+    }
+
+    private void appendMiniDrillsInfo() {
+        if (mMiniDrillsDebugInfoProvider == null) {
+            return;
+        }
+
+        CharSequence status = mMiniDrillsDebugInfoProvider.getDebugInfo();
+
+        if (!TextUtils.isEmpty(status)) {
+            appendRow("Mini Drills next card", status);
+        }
     }
 
     private void appendPlayerState() {

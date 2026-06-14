@@ -2,6 +2,7 @@ package com.liskovsoft.smartyoutubetv2.common.app.models.playback.controllers;
 
 import com.liskovsoft.sharedutils.helpers.MessageHelpers;
 import com.liskovsoft.smartyoutubetv2.common.R;
+import com.liskovsoft.smartyoutubetv2.common.app.models.minidrills.MiniDrillController;
 import com.liskovsoft.smartyoutubetv2.common.app.models.playback.BasePlayerController;
 import com.liskovsoft.smartyoutubetv2.common.app.models.playback.ui.OptionCategory;
 import com.liskovsoft.smartyoutubetv2.common.app.models.playback.ui.OptionItem;
@@ -20,6 +21,7 @@ public class HQDialogController extends BasePlayerController {
     private static final String TAG = HQDialogController.class.getSimpleName();
     private static final int VIDEO_FORMATS_ID = 132;
     private static final int AUDIO_FORMATS_ID = 133;
+    private static final int MINI_DRILLS_TRIGGER_ID = 134;
     // NOTE: using map, because same item could be changed time to time
     private final Map<Integer, OptionCategory> mCategories = new LinkedHashMap<>();
     private final Map<Integer, OptionCategory> mCategoriesInt = new LinkedHashMap<>();
@@ -55,6 +57,7 @@ public class HQDialogController extends BasePlayerController {
         addAudioDelayCategory();
         addPitchEffectCategory();
         addSleepTimerCategory();
+        addMiniDrillsTrigger();
         //addBackgroundPlaybackCategory();
 
         appendOptions(mCategoriesInt);
@@ -144,6 +147,36 @@ public class HQDialogController extends BasePlayerController {
 
     private void addSleepTimerCategory() {
         addCategoryInt(AppDialogUtil.createSleepTimerCategory(getContext()));
+    }
+
+    private void addMiniDrillsTrigger() {
+        addCategoryInt(OptionCategory.from(
+                MINI_DRILLS_TRIGGER_ID,
+                OptionCategory.TYPE_SINGLE_BUTTON,
+                null,
+                UiOptionItem.from("Trigger Mini Drill", option -> showMiniDrillNow())));
+    }
+
+    private void showMiniDrillNow() {
+        MiniDrillController controller = getMiniDrillController();
+
+        if (controller == null) {
+            MessageHelpers.showMessage(getContext(), "Mini Drills not ready");
+            return;
+        }
+
+        addOnDialogHide(() -> {
+            MiniDrillController latestController = getMiniDrillController();
+
+            if (latestController != null) {
+                latestController.showDevOverlayNow();
+            }
+        });
+        mAppDialogPresenter.closeDialog();
+    }
+
+    private MiniDrillController getMiniDrillController() {
+        return getPlaybackPresenter().getController(MiniDrillController.class);
     }
 
     private void addAudioLanguage() {

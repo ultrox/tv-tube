@@ -62,6 +62,7 @@ import com.liskovsoft.smartyoutubetv2.common.app.models.data.VideoGroup;
 import com.liskovsoft.smartyoutubetv2.common.app.models.playback.manager.PlayerUI;
 import com.liskovsoft.smartyoutubetv2.common.app.models.minidrills.MiniDrillCard;
 import com.liskovsoft.smartyoutubetv2.common.app.models.minidrills.MiniDrillController;
+import com.liskovsoft.smartyoutubetv2.common.app.models.minidrills.MiniDrillRuntimeStatusFormatter;
 import com.liskovsoft.smartyoutubetv2.common.app.models.minidrills.MiniDrillUi;
 import com.liskovsoft.smartyoutubetv2.common.app.models.playback.ui.ChatReceiver;
 import com.liskovsoft.smartyoutubetv2.common.app.models.playback.ui.SeekBarSegment;
@@ -595,7 +596,11 @@ public class PlaybackFragment extends SeekModePlaybackFragment implements Playba
         }
 
         if (mDebugInfoManager == null) {
-            mDebugInfoManager = new DebugInfoManager(getView().findViewById(R.id.debug_view_group), mPlayer, mPlayerInitializer);
+            mDebugInfoManager = new DebugInfoManager(
+                    getView().findViewById(R.id.debug_view_group),
+                    mPlayer,
+                    mPlayerInitializer,
+                    () -> MiniDrillRuntimeStatusFormatter.formatNextCard(getMiniDrillController()));
         }
     }
 
@@ -1097,15 +1102,15 @@ public class PlaybackFragment extends SeekModePlaybackFragment implements Playba
     }
 
     private void showMiniDrillDevOverlay() {
-        if (mPlaybackPresenter == null) {
-            return;
-        }
-
-        MiniDrillController controller = mPlaybackPresenter.getController(MiniDrillController.class);
+        MiniDrillController controller = getMiniDrillController();
 
         if (controller != null) {
             controller.showDevOverlayNow();
         }
+    }
+
+    private MiniDrillController getMiniDrillController() {
+        return mPlaybackPresenter != null ? mPlaybackPresenter.getController(MiniDrillController.class) : null;
     }
 
     private InputScopeResult dispatchMiniDrillTouchScope(MotionEvent event) {

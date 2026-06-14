@@ -9,37 +9,81 @@ public class MiniDrillScheduler {
     }
 
     public Decision evaluate(Inputs inputs) {
+        return evaluateStatus(inputs).decision;
+    }
+
+    public Status evaluateStatus(Inputs inputs) {
+        Status status = new Status();
+        status.decision = Decision.SHOW_NOTHING;
+
         if (inputs == null || inputs.config == null || !inputs.miniDrillsEnabled) {
-            return Decision.SHOW_NOTHING;
+            status.reason = inputs == null || inputs.config == null ? "No config loaded" : "Mini Drills disabled";
+            return status;
         }
 
         if (inputs.videoEnded && inputs.config.endReview.enabled && inputs.hasPendingReview) {
-            return Decision.SHOW_END_REVIEW;
+            status.decision = Decision.SHOW_END_REVIEW;
+            status.reason = "End review ready";
+            return status;
         }
 
         if (inputs.videoPaused && inputs.config.pauseCard.enabled && !inputs.modalVisible) {
-            return Decision.SHOW_PAUSE_CARD;
+            status.decision = Decision.SHOW_PAUSE_CARD;
+            status.reason = "Pause card ready";
+            return status;
         }
 
-        if (!inputs.videoPlaying || !inputs.config.playbackOverlay.enabled || !inputs.overlayFrequencyEnabled) {
-            return Decision.SHOW_NOTHING;
+        if (!inputs.videoPlaying) {
+            status.reason = "Video is not playing";
+            return status;
+        }
+
+        if (!inputs.config.playbackOverlay.enabled) {
+            status.reason = "Playback overlay disabled";
+            return status;
+        }
+
+        if (!inputs.overlayFrequencyEnabled) {
+            status.reason = "Playback overlay frequency off";
+            return status;
         }
 
         if (inputs.overlayVisible || inputs.modalVisible || inputs.overlayCardsShown >= inputs.config.frequency.maxOverlayCardsPerVideo) {
-            return Decision.SHOW_NOTHING;
+            if (inputs.overlayVisible) {
+                status.reason = "Blocked by player UI";
+            } else if (inputs.modalVisible) {
+                status.reason = "Blocked by open dialog";
+            } else {
+                status.reason = "Card cap reached";
+            }
+            return status;
         }
 
         int intervalSeconds = Math.max(inputs.overlayIntervalSeconds, inputs.config.frequency.minimumOverlayIntervalSeconds);
+        long intervalEligiblePlaybackSeconds = inputs.lastOverlayPlaybackSeconds + intervalSeconds;
+        status.nextEligiblePlaybackSeconds = Math.max(intervalEligiblePlaybackSeconds, inputs.nextAllowedOverlayPlaybackSeconds);
+        status.secondsUntilEligible = Math.max(0, status.nextEligiblePlaybackSeconds - inputs.playbackSeconds);
 
         if (inputs.playbackSeconds - inputs.lastOverlayPlaybackSeconds < intervalSeconds) {
-            return Decision.SHOW_NOTHING;
+            status.reason = "Waiting for interval";
+            return status;
         }
 
         if (inputs.playbackSeconds < inputs.nextAllowedOverlayPlaybackSeconds) {
-            return Decision.SHOW_NOTHING;
+            status.reason = "Waiting for cooldown";
+            return status;
         }
 
-        return Decision.SHOW_OVERLAY;
+        status.decision = Decision.SHOW_OVERLAY;
+        status.reason = "Ready";
+        return status;
+    }
+
+    public static class Status {
+        public Decision decision;
+        public String reason;
+        public long nextEligiblePlaybackSeconds;
+        public long secondsUntilEligible;
     }
 
     public static class Inputs {

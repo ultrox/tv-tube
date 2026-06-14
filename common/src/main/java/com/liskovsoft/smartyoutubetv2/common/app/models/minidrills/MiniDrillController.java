@@ -10,6 +10,7 @@ import com.liskovsoft.smartyoutubetv2.common.app.models.playback.BasePlayerContr
 import com.liskovsoft.smartyoutubetv2.common.app.models.playback.ui.OptionItem;
 import com.liskovsoft.smartyoutubetv2.common.app.models.playback.ui.UiOptionItem;
 import com.liskovsoft.smartyoutubetv2.common.app.presenters.AppDialogPresenter;
+import com.liskovsoft.smartyoutubetv2.common.app.views.PlaybackView;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -188,6 +189,77 @@ public class MiniDrillController extends BasePlayerController {
         }
 
         showOverlay(card, false);
+    }
+
+    public RuntimeStatus getRuntimeStatus() {
+        PlaybackView player = getPlayer();
+        MiniDrillUi miniDrillUi = player instanceof MiniDrillUi ? (MiniDrillUi) player : null;
+        RuntimeStatus status = new RuntimeStatus();
+        status.configLoaded = mConfig != null;
+        status.hasActivePlayer = player != null;
+        status.hasMiniDrillUi = miniDrillUi != null;
+        status.overlayCardsShown = mOverlayCardsShown;
+
+        long playbackSeconds = 0;
+        int effectiveIntervalSeconds = 0;
+
+        if (mConfig != null) {
+            status.miniDrillsEnabled = isMiniDrillsEnabled();
+            status.hasCards = hasCards();
+            status.overlayFrequencyEnabled = isOverlayFrequencyEnabled();
+            effectiveIntervalSeconds = getEffectiveOverlayIntervalSeconds();
+            status.maxOverlayCardsPerVideo = mConfig.frequency.maxOverlayCardsPerVideo;
+            status.playbackOverlayEnabled = mConfig.playbackOverlay.enabled;
+        }
+
+        if (player != null) {
+            playbackSeconds = player.getPositionMs() / 1_000;
+            status.videoPlaying = player.isPlaying();
+        }
+
+        updateNextCardTiming(status, playbackSeconds, effectiveIntervalSeconds);
+
+        if (!status.hasActivePlayer) {
+            status.reason = "No active playback";
+            return status;
+        }
+
+        if (!status.configLoaded) {
+            status.reason = "No config loaded";
+            return status;
+        }
+
+        if (!status.hasCards) {
+            status.reason = "No cards loaded";
+            return status;
+        }
+
+        if (!status.hasMiniDrillUi) {
+            status.reason = "Player view unavailable";
+            return status;
+        }
+
+        if (status.videoPlaying && !mOverlayScheduleStarted && effectiveIntervalSeconds > 0) {
+            status.reason = "Waiting for first playback tick";
+            status.nextEligiblePlaybackSeconds = playbackSeconds + effectiveIntervalSeconds;
+            status.secondsUntilNextCard = effectiveIntervalSeconds;
+            return status;
+        }
+
+        MiniDrillScheduler.Inputs inputs = createSchedulerInputs(playbackSeconds);
+        inputs.videoPlaying = status.videoPlaying;
+        inputs.overlayVisible = isOverlayVisible(player, miniDrillUi);
+        inputs.modalVisible = isModalVisible();
+
+        MiniDrillScheduler.Status schedulerStatus = mScheduler.evaluateStatus(inputs);
+        status.reason = schedulerStatus.reason;
+
+        if (schedulerStatus.nextEligiblePlaybackSeconds > 0) {
+            status.nextEligiblePlaybackSeconds = schedulerStatus.nextEligiblePlaybackSeconds;
+            status.secondsUntilNextCard = schedulerStatus.secondsUntilEligible;
+        }
+
+        return status;
     }
 
     public void showDevOverlayNow() {
@@ -507,9 +579,9 @@ public class MiniDrillController extends BasePlayerController {
         MiniDrillScheduler.Inputs inputs = new MiniDrillScheduler.Inputs();
         inputs.config = mConfig;
         inputs.playbackSeconds = positionSeconds;
-        inputs.miniDrillsEnabled = mSettings != null ? mSettings.isEnabled(mConfig) : mConfig.enabled;
-        inputs.overlayFrequencyEnabled = mSettings != null ? mSettings.isEffectiveOverlayFrequencyEnabled(mConfig) : mConfig.frequency.isOverlayEnabled();
-        inputs.overlayIntervalSeconds = mSettings != null ? mSettings.getEffectiveOverlayIntervalSeconds(mConfig) : mConfig.frequency.intervalSeconds;
+        inputs.miniDrillsEnabled = isMiniDrillsEnabled();
+        inputs.overlayFrequencyEnabled = isOverlayFrequencyEnabled();
+        inputs.overlayIntervalSeconds = getOverlayIntervalSeconds();
         inputs.overlayCardsShown = mOverlayCardsShown;
         inputs.lastOverlayPlaybackSeconds = mLastOverlayPlaybackSeconds;
         inputs.nextAllowedOverlayPlaybackSeconds = mNextAllowedOverlayPlaybackSeconds;
@@ -518,11 +590,67 @@ public class MiniDrillController extends BasePlayerController {
     }
 
     private boolean hasUsableConfig() {
-        return mConfig != null && (mSettings != null ? mSettings.isEnabled(mConfig) : mConfig.enabled) &&
-                mConfig.cards != null && !mConfig.cards.isEmpty();
+        return isMiniDrillsEnabled() && hasCards();
+    }
+
+    private boolean hasCards() {
+        return mConfig != null && mConfig.cards != null && !mConfig.cards.isEmpty();
+    }
+
+    private boolean isMiniDrillsEnabled() {
+        return mConfig != null && (mSettings != null ? mSettings.isEnabled(mConfig) : mConfig.enabled);
+    }
+
+    private boolean isOverlayFrequencyEnabled() {
+        return mConfig != null && (mSettings != null ? mSettings.isEffectiveOverlayFrequencyEnabled(mConfig) :
+                mConfig.frequency.isOverlayEnabled());
+    }
+
+    private int getOverlayIntervalSeconds() {
+        return mConfig != null ? (mSettings != null ? mSettings.getEffectiveOverlayIntervalSeconds(mConfig) :
+                mConfig.frequency.intervalSeconds) : 0;
+    }
+
+    private int getEffectiveOverlayIntervalSeconds() {
+        return mConfig != null ? Math.max(getOverlayIntervalSeconds(), mConfig.frequency.minimumOverlayIntervalSeconds) : 0;
+    }
+
+    private void updateNextCardTiming(RuntimeStatus status, long playbackSeconds, int intervalSeconds) {
+        if (intervalSeconds <= 0) {
+            return;
+        }
+
+        status.nextEligiblePlaybackSeconds = Math.max(
+                mLastOverlayPlaybackSeconds + intervalSeconds,
+                mNextAllowedOverlayPlaybackSeconds);
+        status.secondsUntilNextCard = Math.max(0, status.nextEligiblePlaybackSeconds - playbackSeconds);
+    }
+
+    private boolean isOverlayVisible(PlaybackView player, MiniDrillUi miniDrillUi) {
+        boolean playerOverlayVisible = player != null && player.isOverlayShown();
+        boolean miniDrillVisible = miniDrillUi != null &&
+                (miniDrillUi.isMiniDrillOverlayShown() || miniDrillUi.isMiniDrillPlaybackBlocked());
+
+        return playerOverlayVisible || miniDrillVisible;
     }
 
     private boolean isModalVisible() {
         return getContext() != null && getAppDialogPresenter().isDialogShown();
+    }
+
+    public static class RuntimeStatus {
+        public boolean configLoaded;
+        public boolean hasActivePlayer;
+        public boolean hasMiniDrillUi;
+        public boolean miniDrillsEnabled;
+        public boolean hasCards;
+        public boolean playbackOverlayEnabled;
+        public boolean overlayFrequencyEnabled;
+        public boolean videoPlaying;
+        public String reason;
+        public int overlayCardsShown;
+        public int maxOverlayCardsPerVideo;
+        public long nextEligiblePlaybackSeconds;
+        public long secondsUntilNextCard;
     }
 }
