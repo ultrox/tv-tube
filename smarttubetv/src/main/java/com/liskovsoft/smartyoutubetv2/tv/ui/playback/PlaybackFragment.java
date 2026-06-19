@@ -118,6 +118,8 @@ public class PlaybackFragment extends SeekModePlaybackFragment implements Playba
     private static final int MINI_DRILL_TIMEOUT_PROGRESS_MAX = 1_000;
     private static final long MINI_DRILL_PROGRESS_UPDATE_MS = 100;
     private static final long MINI_DRILL_AFTER_SEEK_BLOCK_MS = 8_000;
+    private static final int MINI_DRILL_COMMIT_MIN_COUNT = 1;
+    private static final int MINI_DRILL_COMMIT_MAX_COUNT = 5;
 
     private enum InputScopeResult {
         UNHANDLED,
@@ -168,6 +170,7 @@ public class PlaybackFragment extends SeekModePlaybackFragment implements Playba
     private boolean mMiniDrillHandled;
     private boolean mMiniDrillRevealed;
     private boolean mMiniDrillCommitted;
+    private int mMiniDrillCommitCount = MINI_DRILL_COMMIT_MIN_COUNT;
     private long mMiniDrillBlockedUntilMs;
     private long mMiniDrillTimeoutStartedMs;
     private int mMiniDrillTimeoutMs;
@@ -1010,7 +1013,7 @@ public class PlaybackFragment extends SeekModePlaybackFragment implements Playba
 
 
     @Override
-    public void showMiniDrillOverlay(MiniDrillCard card, boolean revealed, MiniDrillUi.Callback callback, int timeoutMs) {
+    public void showMiniDrillOverlay(MiniDrillCard card, boolean revealed, boolean committed, int committedCount, MiniDrillUi.Callback callback, int timeoutMs) {
         if (getView() == null || card == null || callback == null) {
             return;
         }
@@ -1024,7 +1027,8 @@ public class PlaybackFragment extends SeekModePlaybackFragment implements Playba
         mMiniDrillCallback = callback;
         mMiniDrillHandled = false;
         mMiniDrillRevealed = revealed;
-        mMiniDrillCommitted = revealed;
+        mMiniDrillCommitted = committed || revealed;
+        mMiniDrillCommitCount = clampMiniDrillCommitCount(committed || revealed ? committedCount : MINI_DRILL_COMMIT_MIN_COUNT);
         mMiniDrillCard = card;
 
         renderMiniDrillOverlay(card, revealed, mMiniDrillCommitted, timeoutMs);
@@ -1039,6 +1043,7 @@ public class PlaybackFragment extends SeekModePlaybackFragment implements Playba
 
         TextView title = overlay.findViewById(R.id.mini_drill_title);
         TextView prompt = overlay.findViewById(R.id.mini_drill_prompt);
+        TextView commitCount = overlay.findViewById(R.id.mini_drill_commit_count);
         TextView hint = overlay.findViewById(R.id.mini_drill_hint);
         TextView answer = overlay.findViewById(R.id.mini_drill_answer);
         LinearLayout actions = overlay.findViewById(R.id.mini_drill_actions);
@@ -1048,6 +1053,7 @@ public class PlaybackFragment extends SeekModePlaybackFragment implements Playba
 
         title.setText(card.getPromptPrefix());
         prompt.setText(card.getPromptText());
+        updateMiniDrillCommitCountView(commitCount, revealed, committed);
 
         if (shouldShowMiniDrillHint(card, revealed, committed)) {
             hint.setText(card.hint.text);
@@ -1069,6 +1075,43 @@ public class PlaybackFragment extends SeekModePlaybackFragment implements Playba
 
         focusMiniDrillDefaultAction(overlay, revealed, committed);
         configureMiniDrillTimeout(timeoutProgress, !committed && !revealed, timeoutMs);
+    }
+
+    private void updateMiniDrillCommitCountView(TextView view, boolean revealed, boolean committed) {
+        if (view == null) {
+            return;
+        }
+
+        view.setText(formatMiniDrillCommitCount(revealed, committed));
+        view.setVisibility(View.VISIBLE);
+    }
+
+    private void updateMiniDrillCommitCountView() {
+        if (mMiniDrillOverlay == null) {
+            return;
+        }
+
+        TextView view = mMiniDrillOverlay.findViewById(R.id.mini_drill_commit_count);
+        updateMiniDrillCommitCountView(view, mMiniDrillRevealed, mMiniDrillCommitted);
+    }
+
+    private String formatMiniDrillCommitCount(boolean revealed, boolean committed) {
+        int count = clampMiniDrillCommitCount(mMiniDrillCommitCount);
+
+        if (committed || revealed) {
+            return count == 1 ? "1 left" : count + " left";
+        }
+
+        return count == 1 ? "1 drill" : count + " drills";
+    }
+
+    private void adjustMiniDrillCommitCount(int delta) {
+        mMiniDrillCommitCount = clampMiniDrillCommitCount(mMiniDrillCommitCount + delta);
+        updateMiniDrillCommitCountView();
+    }
+
+    private int clampMiniDrillCommitCount(int count) {
+        return Math.max(MINI_DRILL_COMMIT_MIN_COUNT, Math.min(MINI_DRILL_COMMIT_MAX_COUNT, count));
     }
 
     private boolean shouldShowMiniDrillHint(MiniDrillCard card, boolean revealed, boolean committed) {
@@ -1315,6 +1358,7 @@ public class PlaybackFragment extends SeekModePlaybackFragment implements Playba
         mMiniDrillHandled = false;
         mMiniDrillRevealed = false;
         mMiniDrillCommitted = false;
+        mMiniDrillCommitCount = MINI_DRILL_COMMIT_MIN_COUNT;
         mMiniDrillCard = null;
     }
 
@@ -1401,6 +1445,12 @@ public class PlaybackFragment extends SeekModePlaybackFragment implements Playba
 
         if (isMiniDrillHookShown()) {
             switch (keyCode) {
+                case KeyEvent.KEYCODE_DPAD_UP:
+                    adjustMiniDrillCommitCount(1);
+                    return true;
+                case KeyEvent.KEYCODE_DPAD_DOWN:
+                    adjustMiniDrillCommitCount(-1);
+                    return true;
                 case KeyEvent.KEYCODE_DPAD_CENTER:
                 case KeyEvent.KEYCODE_ENTER:
                 case KeyEvent.KEYCODE_SPACE:
@@ -1629,6 +1679,7 @@ public class PlaybackFragment extends SeekModePlaybackFragment implements Playba
         }
 
         mMiniDrillCommitted = true;
+        mMiniDrillCallback.onCommit(mMiniDrillCommitCount);
         stopMiniDrillTimeout();
         renderMiniDrillOverlay(mMiniDrillCard, false, true, 0);
     }

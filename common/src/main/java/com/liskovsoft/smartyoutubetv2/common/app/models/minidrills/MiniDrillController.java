@@ -21,6 +21,7 @@ import io.reactivex.disposables.Disposable;
 public class MiniDrillController extends BasePlayerController {
     private static final String TAG = MiniDrillController.class.getSimpleName();
     private static final long PLAYBACK_OVERLAY_CHECK_MS = 1_000;
+    private static final int PLAYBACK_OVERLAY_MIN_VISIBLE_SECONDS = 12;
     private static final int PLAYBACK_OVERLAY_START_GUARD_SECONDS = 10;
     private static final int PLAYBACK_OVERLAY_END_GUARD_SECONDS = 10;
     private final Handler mHandler = new Handler(Looper.getMainLooper());
@@ -34,6 +35,7 @@ public class MiniDrillController extends BasePlayerController {
     private MiniDrillCard mOverlayCard;
     private boolean mOverlayRevealed;
     private boolean mPauseCardShownForCurrentPause;
+    private int mOverlayBatchRemaining;
     private int mOverlayCardsShown;
     private long mNextOverlayDueTimeMs;
     private long mNextAllowedOverlayTimeMs;
@@ -49,6 +51,7 @@ public class MiniDrillController extends BasePlayerController {
         mOverlayCard = null;
         mOverlayRevealed = false;
         mPauseCardShownForCurrentPause = false;
+        mOverlayBatchRemaining = 0;
         mOverlayCardsShown = 0;
         dismissOverlay();
         startPlaybackOverlayChecks();
@@ -261,14 +264,18 @@ public class MiniDrillController extends BasePlayerController {
             return;
         }
 
-        showOverlay(card, false, false);
+        showOverlay(card, false, false, false);
     }
 
     private void showOverlay(MiniDrillCard card, boolean revealed) {
-        showOverlay(card, revealed, true);
+        showOverlay(card, revealed, true, revealed || mOverlayBatchRemaining > 0);
     }
 
     private void showOverlay(MiniDrillCard card, boolean revealed, boolean countForFrequency) {
+        showOverlay(card, revealed, countForFrequency, revealed || mOverlayBatchRemaining > 0);
+    }
+
+    private void showOverlay(MiniDrillCard card, boolean revealed, boolean countForFrequency, boolean committed) {
         if (getPlayer() == null || !(getPlayer() instanceof MiniDrillUi)) {
             return;
         }
@@ -285,12 +292,17 @@ public class MiniDrillController extends BasePlayerController {
             }
         }
 
-        int timeoutMs = Math.max(1, mConfig.playbackOverlay.visibleSeconds) * 1_000;
-        ui.showMiniDrillOverlay(card, revealed, createOverlayCallback(card), timeoutMs);
+        int timeoutMs = Math.max(PLAYBACK_OVERLAY_MIN_VISIBLE_SECONDS, mConfig.playbackOverlay.visibleSeconds) * 1_000;
+        ui.showMiniDrillOverlay(card, revealed, committed, Math.max(1, mOverlayBatchRemaining), createOverlayCallback(card), timeoutMs);
     }
 
     private MiniDrillUi.Callback createOverlayCallback(MiniDrillCard card) {
         return new MiniDrillUi.Callback() {
+            @Override
+            public void onCommit(int count) {
+                mOverlayBatchRemaining = Math.max(1, count);
+            }
+
             @Override
             public void onReveal() {
                 mSession.markRevealed(card);
@@ -341,6 +353,7 @@ public class MiniDrillController extends BasePlayerController {
                     mSession.markIgnored(card);
                 }
 
+                mOverlayBatchRemaining = 0;
                 updateDismissCooldown();
                 clearOverlayState();
             }
@@ -351,6 +364,7 @@ public class MiniDrillController extends BasePlayerController {
                     mSession.markPending(card);
                 }
 
+                mOverlayBatchRemaining = 0;
                 dismissOverlayAfterAction(mOverlayRevealed);
             }
         };
@@ -361,8 +375,44 @@ public class MiniDrillController extends BasePlayerController {
             mSession.markPending(mOverlayCard);
         }
 
-        updateDismissCooldown();
+        boolean continueBatch = consumeOverlayBatchCard();
+
+        if (!continueBatch) {
+            updateDismissCooldown();
+        }
+
         dismissOverlay();
+
+        if (continueBatch) {
+            showNextCommittedOverlay();
+        }
+    }
+
+    private boolean consumeOverlayBatchCard() {
+        if (mOverlayBatchRemaining <= 0) {
+            return false;
+        }
+
+        mOverlayBatchRemaining--;
+        return mOverlayBatchRemaining > 0;
+    }
+
+    private void showNextCommittedOverlay() {
+        if (!hasUsableConfig()) {
+            mOverlayBatchRemaining = 0;
+            updateDismissCooldown();
+            return;
+        }
+
+        MiniDrillCard card = mSession.pickCard(mConfig.cards);
+
+        if (card == null) {
+            mOverlayBatchRemaining = 0;
+            updateDismissCooldown();
+            return;
+        }
+
+        showOverlay(card, false, true, true);
     }
 
     private void dismissOverlay() {
