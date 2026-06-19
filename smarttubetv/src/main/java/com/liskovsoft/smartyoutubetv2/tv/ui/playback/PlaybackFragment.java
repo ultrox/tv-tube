@@ -119,7 +119,7 @@ public class PlaybackFragment extends SeekModePlaybackFragment implements Playba
     private static final long MINI_DRILL_PROGRESS_UPDATE_MS = 100;
     private static final long MINI_DRILL_AFTER_SEEK_BLOCK_MS = 8_000;
     private static final int MINI_DRILL_COMMIT_MIN_COUNT = 1;
-    private static final int MINI_DRILL_COMMIT_MAX_COUNT = 5;
+    private static final int MINI_DRILL_COMMIT_MAX_COUNT = 15;
 
     private enum InputScopeResult {
         UNHANDLED,
