@@ -39,23 +39,21 @@ public class MiniDrillRuntimeStatusFormatter {
             return "card cap reached";
         }
 
-        if (runtime.nextEligiblePlaybackSeconds <= 0) {
+        if (runtime.nextEligibleTimeMs <= 0) {
             return safe(runtime.reason).toLowerCase();
         }
 
-        String target = formatPlaybackTime(runtime.nextEligiblePlaybackSeconds);
-
         if (!runtime.videoPlaying) {
             return runtime.secondsUntilNextCard <= 0
-                    ? "eligible when playback resumes"
-                    : "in " + formatDuration(runtime.secondsUntilNextCard) + " after playback resumes";
+                    ? "due when playback resumes"
+                    : "in " + formatDuration(runtime.secondsUntilNextCard);
         }
 
         if (runtime.secondsUntilNextCard <= 0) {
-            return "eligible now";
+            return safe(runtime.reason).toLowerCase();
         }
 
-        return "in " + formatDuration(runtime.secondsUntilNextCard) + " (at " + target + ")";
+        return "in " + formatDuration(runtime.secondsUntilNextCard);
     }
 
     private static String formatDuration(long seconds) {
@@ -73,23 +71,6 @@ public class MiniDrillRuntimeStatusFormatter {
         }
 
         return remainingSeconds + "s";
-    }
-
-    private static String formatPlaybackTime(long seconds) {
-        seconds = Math.max(0, seconds);
-        long hours = seconds / 3_600;
-        long minutes = (seconds % 3_600) / 60;
-        long remainingSeconds = seconds % 60;
-
-        if (hours > 0) {
-            return hours + ":" + twoDigits(minutes) + ":" + twoDigits(remainingSeconds);
-        }
-
-        return minutes + ":" + twoDigits(remainingSeconds);
-    }
-
-    private static String twoDigits(long value) {
-        return value < 10 ? "0" + value : String.valueOf(value);
     }
 
     private static String safe(String value) {

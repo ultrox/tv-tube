@@ -2,6 +2,7 @@ package com.liskovsoft.smartyoutubetv2.common.app.models.minidrills;
 
 import android.os.Handler;
 import android.os.Looper;
+import android.os.SystemClock;
 
 import com.liskovsoft.sharedutils.mylogger.Log;
 import com.liskovsoft.sharedutils.rx.RxHelper;
@@ -20,7 +21,8 @@ import io.reactivex.disposables.Disposable;
 public class MiniDrillController extends BasePlayerController {
     private static final String TAG = MiniDrillController.class.getSimpleName();
     private static final long PLAYBACK_OVERLAY_CHECK_MS = 1_000;
-    private static final int PLAYBACK_OVERLAY_SEEK_COOLDOWN_SECONDS = 15;
+    private static final int PLAYBACK_OVERLAY_START_GUARD_SECONDS = 10;
+    private static final int PLAYBACK_OVERLAY_END_GUARD_SECONDS = 10;
     private final Handler mHandler = new Handler(Looper.getMainLooper());
     private final Runnable mPlaybackOverlayCheck = this::runPlaybackOverlayCheck;
     private final MiniDrillSession mSession = new MiniDrillSession();
@@ -33,9 +35,8 @@ public class MiniDrillController extends BasePlayerController {
     private boolean mOverlayRevealed;
     private boolean mPauseCardShownForCurrentPause;
     private int mOverlayCardsShown;
-    private long mLastOverlayPlaybackSeconds;
-    private long mNextAllowedOverlayPlaybackSeconds;
-    private boolean mOverlayScheduleStarted;
+    private long mNextOverlayDueTimeMs;
+    private long mNextAllowedOverlayTimeMs;
 
     @Override
     public void onInit() {
@@ -49,9 +50,6 @@ public class MiniDrillController extends BasePlayerController {
         mOverlayRevealed = false;
         mPauseCardShownForCurrentPause = false;
         mOverlayCardsShown = 0;
-        mLastOverlayPlaybackSeconds = 0;
-        mNextAllowedOverlayPlaybackSeconds = 0;
-        mOverlayScheduleStarted = false;
         dismissOverlay();
         startPlaybackOverlayChecks();
     }
@@ -85,12 +83,7 @@ public class MiniDrillController extends BasePlayerController {
 
     @Override
     public void onSeekPositionChanged(long positionMs) {
-        long positionSeconds = positionMs / 1_000;
-        mOverlayScheduleStarted = true;
-        mLastOverlayPlaybackSeconds = positionSeconds;
-        mNextAllowedOverlayPlaybackSeconds = Math.max(
-                mNextAllowedOverlayPlaybackSeconds,
-                positionSeconds + PLAYBACK_OVERLAY_SEEK_COOLDOWN_SECONDS);
+        ensureOverlaySchedule();
     }
 
     @Override
@@ -166,12 +159,8 @@ public class MiniDrillController extends BasePlayerController {
         }
 
         long positionSeconds = getPlayer().getPositionMs() / 1_000;
+        ensureOverlaySchedule();
 
-        if (!mOverlayScheduleStarted) {
-            mOverlayScheduleStarted = true;
-            mLastOverlayPlaybackSeconds = positionSeconds;
-            return;
-        }
         MiniDrillUi ui = (MiniDrillUi) getPlayer();
         MiniDrillScheduler.Inputs inputs = createSchedulerInputs(positionSeconds);
         inputs.videoPlaying = getPlayer().isPlaying();
@@ -201,13 +190,11 @@ public class MiniDrillController extends BasePlayerController {
         status.overlayCardsShown = mOverlayCardsShown;
 
         long playbackSeconds = 0;
-        int effectiveIntervalSeconds = 0;
 
         if (mConfig != null) {
             status.miniDrillsEnabled = isMiniDrillsEnabled();
             status.hasCards = hasCards();
             status.overlayFrequencyEnabled = isOverlayFrequencyEnabled();
-            effectiveIntervalSeconds = getEffectiveOverlayIntervalSeconds();
             status.maxOverlayCardsPerVideo = mConfig.frequency.maxOverlayCardsPerVideo;
             status.playbackOverlayEnabled = mConfig.playbackOverlay.enabled;
         }
@@ -217,7 +204,9 @@ public class MiniDrillController extends BasePlayerController {
             status.videoPlaying = player.isPlaying();
         }
 
-        updateNextCardTiming(status, playbackSeconds, effectiveIntervalSeconds);
+        if (mConfig != null && player != null) {
+            ensureOverlaySchedule();
+        }
 
         if (!status.hasActivePlayer) {
             status.reason = "No active playback";
@@ -239,13 +228,6 @@ public class MiniDrillController extends BasePlayerController {
             return status;
         }
 
-        if (status.videoPlaying && !mOverlayScheduleStarted && effectiveIntervalSeconds > 0) {
-            status.reason = "Waiting for first playback tick";
-            status.nextEligiblePlaybackSeconds = playbackSeconds + effectiveIntervalSeconds;
-            status.secondsUntilNextCard = effectiveIntervalSeconds;
-            return status;
-        }
-
         MiniDrillScheduler.Inputs inputs = createSchedulerInputs(playbackSeconds);
         inputs.videoPlaying = status.videoPlaying;
         inputs.overlayVisible = isOverlayVisible(player, miniDrillUi);
@@ -254,9 +236,9 @@ public class MiniDrillController extends BasePlayerController {
         MiniDrillScheduler.Status schedulerStatus = mScheduler.evaluateStatus(inputs);
         status.reason = schedulerStatus.reason;
 
-        if (schedulerStatus.nextEligiblePlaybackSeconds > 0) {
-            status.nextEligiblePlaybackSeconds = schedulerStatus.nextEligiblePlaybackSeconds;
-            status.secondsUntilNextCard = schedulerStatus.secondsUntilEligible;
+        if (schedulerStatus.nextEligibleTimeMs > 0) {
+            status.nextEligibleTimeMs = schedulerStatus.nextEligibleTimeMs;
+            status.secondsUntilNextCard = schedulerStatus.millisecondsUntilEligible / 1_000;
         }
 
         return status;
@@ -299,7 +281,7 @@ public class MiniDrillController extends BasePlayerController {
             mSession.markShown(card);
             if (countForFrequency) {
                 mOverlayCardsShown++;
-                mLastOverlayPlaybackSeconds = getPlayer().getPositionMs() / 1_000;
+                advanceOverlayScheduleAfterShown();
             }
         }
 
@@ -349,8 +331,7 @@ public class MiniDrillController extends BasePlayerController {
             @Override
             public void onAnnoying() {
                 mSession.markDisabledForSession(card);
-                long positionSeconds = getPlayer() != null ? getPlayer().getPositionMs() / 1_000 : 0;
-                mNextAllowedOverlayPlaybackSeconds = positionSeconds + mConfig.frequency.cooldownAfterAnnoyingSeconds;
+                mNextAllowedOverlayTimeMs = SystemClock.elapsedRealtime() + mConfig.frequency.cooldownAfterAnnoyingSeconds * 1_000L;
                 dismissOverlayAfterAction(mOverlayRevealed);
             }
 
@@ -402,10 +383,9 @@ public class MiniDrillController extends BasePlayerController {
             return;
         }
 
-        long positionSeconds = getPlayer().getPositionMs() / 1_000;
-        mNextAllowedOverlayPlaybackSeconds = Math.max(
-                mNextAllowedOverlayPlaybackSeconds,
-                positionSeconds + mConfig.frequency.cooldownAfterDismissSeconds);
+        mNextAllowedOverlayTimeMs = Math.max(
+                mNextAllowedOverlayTimeMs,
+                SystemClock.elapsedRealtime() + mConfig.frequency.cooldownAfterDismissSeconds * 1_000L);
     }
 
     private void maybeShowPauseCard() {
@@ -581,10 +561,12 @@ public class MiniDrillController extends BasePlayerController {
         inputs.playbackSeconds = positionSeconds;
         inputs.miniDrillsEnabled = isMiniDrillsEnabled();
         inputs.overlayFrequencyEnabled = isOverlayFrequencyEnabled();
-        inputs.overlayIntervalSeconds = getOverlayIntervalSeconds();
         inputs.overlayCardsShown = mOverlayCardsShown;
-        inputs.lastOverlayPlaybackSeconds = mLastOverlayPlaybackSeconds;
-        inputs.nextAllowedOverlayPlaybackSeconds = mNextAllowedOverlayPlaybackSeconds;
+        inputs.currentTimeMs = SystemClock.elapsedRealtime();
+        inputs.nextOverlayDueTimeMs = mNextOverlayDueTimeMs;
+        inputs.nextAllowedOverlayTimeMs = mNextAllowedOverlayTimeMs;
+        inputs.overlayWindowStartPlaybackSeconds = PLAYBACK_OVERLAY_START_GUARD_SECONDS;
+        inputs.overlayWindowEndPlaybackSeconds = getOverlayWindowEndPlaybackSeconds();
         inputs.hasPendingReview = !mSession.getPendingCards(mConfig.cards).isEmpty();
         return inputs;
     }
@@ -615,15 +597,39 @@ public class MiniDrillController extends BasePlayerController {
         return mConfig != null ? Math.max(getOverlayIntervalSeconds(), mConfig.frequency.minimumOverlayIntervalSeconds) : 0;
     }
 
-    private void updateNextCardTiming(RuntimeStatus status, long playbackSeconds, int intervalSeconds) {
+    private void ensureOverlaySchedule() {
+        if (mNextOverlayDueTimeMs <= 0) {
+            mNextOverlayDueTimeMs = calculateNextOverlayDueTimeMs();
+        }
+    }
+
+    private void advanceOverlayScheduleAfterShown() {
+        mNextOverlayDueTimeMs = calculateNextOverlayDueTimeMs();
+    }
+
+    private long calculateNextOverlayDueTimeMs() {
+        int intervalSeconds = getEffectiveOverlayIntervalSeconds();
+
         if (intervalSeconds <= 0) {
-            return;
+            return 0;
         }
 
-        status.nextEligiblePlaybackSeconds = Math.max(
-                mLastOverlayPlaybackSeconds + intervalSeconds,
-                mNextAllowedOverlayPlaybackSeconds);
-        status.secondsUntilNextCard = Math.max(0, status.nextEligiblePlaybackSeconds - playbackSeconds);
+        return SystemClock.elapsedRealtime() + intervalSeconds * 1_000L;
+    }
+
+    private long getOverlayWindowEndPlaybackSeconds() {
+        long durationSeconds = getDurationSeconds();
+
+        if (durationSeconds <= 0) {
+            return 0;
+        }
+
+        long windowEndPlaybackSeconds = durationSeconds - PLAYBACK_OVERLAY_END_GUARD_SECONDS;
+        return windowEndPlaybackSeconds >= PLAYBACK_OVERLAY_START_GUARD_SECONDS ? windowEndPlaybackSeconds : -1;
+    }
+
+    private long getDurationSeconds() {
+        return getPlayer() != null ? getPlayer().getDurationMs() / 1_000 : 0;
     }
 
     private boolean isOverlayVisible(PlaybackView player, MiniDrillUi miniDrillUi) {
@@ -650,7 +656,7 @@ public class MiniDrillController extends BasePlayerController {
         public String reason;
         public int overlayCardsShown;
         public int maxOverlayCardsPerVideo;
-        public long nextEligiblePlaybackSeconds;
+        public long nextEligibleTimeMs;
         public long secondsUntilNextCard;
     }
 }

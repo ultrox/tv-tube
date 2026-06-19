@@ -48,6 +48,36 @@ public class MiniDrillScheduler {
             return status;
         }
 
+        if (inputs.nextOverlayDueTimeMs <= 0) {
+            status.reason = "No scheduled card";
+            return status;
+        }
+
+        long nextEligibleTimeMs = Math.max(inputs.nextOverlayDueTimeMs, inputs.nextAllowedOverlayTimeMs);
+        status.nextEligibleTimeMs = nextEligibleTimeMs;
+        status.millisecondsUntilEligible = Math.max(0, status.nextEligibleTimeMs - inputs.currentTimeMs);
+
+        if (status.millisecondsUntilEligible > 0) {
+            status.reason = inputs.nextAllowedOverlayTimeMs >= inputs.nextOverlayDueTimeMs ?
+                    "Waiting for cooldown" : "Waiting for clock";
+            return status;
+        }
+
+        if (inputs.overlayWindowEndPlaybackSeconds < 0) {
+            status.reason = "No valid overlay window";
+            return status;
+        }
+
+        if (inputs.playbackSeconds < inputs.overlayWindowStartPlaybackSeconds) {
+            status.reason = "Waiting for video start window";
+            return status;
+        }
+
+        if (inputs.overlayWindowEndPlaybackSeconds > 0 && inputs.playbackSeconds > inputs.overlayWindowEndPlaybackSeconds) {
+            status.reason = "Past overlay window";
+            return status;
+        }
+
         if (inputs.overlayVisible || inputs.modalVisible || inputs.overlayCardsShown >= inputs.config.frequency.maxOverlayCardsPerVideo) {
             if (inputs.overlayVisible) {
                 status.reason = "Blocked by player UI";
@@ -59,21 +89,6 @@ public class MiniDrillScheduler {
             return status;
         }
 
-        int intervalSeconds = Math.max(inputs.overlayIntervalSeconds, inputs.config.frequency.minimumOverlayIntervalSeconds);
-        long intervalEligiblePlaybackSeconds = inputs.lastOverlayPlaybackSeconds + intervalSeconds;
-        status.nextEligiblePlaybackSeconds = Math.max(intervalEligiblePlaybackSeconds, inputs.nextAllowedOverlayPlaybackSeconds);
-        status.secondsUntilEligible = Math.max(0, status.nextEligiblePlaybackSeconds - inputs.playbackSeconds);
-
-        if (inputs.playbackSeconds - inputs.lastOverlayPlaybackSeconds < intervalSeconds) {
-            status.reason = "Waiting for interval";
-            return status;
-        }
-
-        if (inputs.playbackSeconds < inputs.nextAllowedOverlayPlaybackSeconds) {
-            status.reason = "Waiting for cooldown";
-            return status;
-        }
-
         status.decision = Decision.SHOW_OVERLAY;
         status.reason = "Ready";
         return status;
@@ -82,8 +97,8 @@ public class MiniDrillScheduler {
     public static class Status {
         public Decision decision;
         public String reason;
-        public long nextEligiblePlaybackSeconds;
-        public long secondsUntilEligible;
+        public long nextEligibleTimeMs;
+        public long millisecondsUntilEligible;
     }
 
     public static class Inputs {
@@ -91,7 +106,6 @@ public class MiniDrillScheduler {
         public long playbackSeconds;
         public boolean miniDrillsEnabled;
         public boolean overlayFrequencyEnabled;
-        public int overlayIntervalSeconds;
         public boolean videoPlaying;
         public boolean videoPaused;
         public boolean videoEnded;
@@ -99,7 +113,10 @@ public class MiniDrillScheduler {
         public boolean modalVisible;
         public boolean hasPendingReview;
         public int overlayCardsShown;
-        public long lastOverlayPlaybackSeconds;
-        public long nextAllowedOverlayPlaybackSeconds;
+        public long currentTimeMs;
+        public long nextOverlayDueTimeMs;
+        public long nextAllowedOverlayTimeMs;
+        public long overlayWindowStartPlaybackSeconds;
+        public long overlayWindowEndPlaybackSeconds;
     }
 }
